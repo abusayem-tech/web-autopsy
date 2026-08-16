@@ -10,13 +10,22 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { pairExtension, pingExtension, type ExtensionPing } from "@/lib/extension-bridge";
+import {
+  fetchLatestExtensionMeta,
+  isExtensionOutdated,
+  pairExtension,
+  pingExtension,
+  type ExtensionLatestMeta,
+  type ExtensionPing,
+} from "@/lib/extension-bridge";
 
 export type ExtensionStatus = "checking" | "missing" | "installed" | "connected";
 
 type ExtensionContextValue = {
   status: ExtensionStatus;
   ping: ExtensionPing | null;
+  latest: ExtensionLatestMeta | null;
+  outdated: boolean;
   error: string | null;
   refreshing: boolean;
   refresh: () => Promise<void>;
@@ -34,6 +43,7 @@ function statusFromPing(ping: ExtensionPing | null): ExtensionStatus {
 export function ExtensionProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<ExtensionStatus>("checking");
   const [ping, setPing] = useState<ExtensionPing | null>(null);
+  const [latest, setLatest] = useState<ExtensionLatestMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const autoPairAttempted = useRef(false);
@@ -42,8 +52,9 @@ export function ExtensionProvider({ children }: { children: ReactNode }) {
     setRefreshing(true);
     setError(null);
     try {
-      const next = await pingExtension();
+      const [next, meta] = await Promise.all([pingExtension(), fetchLatestExtensionMeta()]);
       setPing(next);
+      setLatest(meta);
       setStatus(statusFromPing(next));
     } finally {
       setRefreshing(false);
@@ -99,9 +110,14 @@ export function ExtensionProvider({ children }: { children: ReactNode }) {
     void connect();
   }, [status, connect]);
 
+  const outdated = useMemo(
+    () => isExtensionOutdated(ping?.version, latest?.version),
+    [ping?.version, latest?.version],
+  );
+
   const value = useMemo(
-    () => ({ status, ping, error, refreshing, refresh, connect }),
-    [status, ping, error, refreshing, refresh, connect],
+    () => ({ status, ping, latest, outdated, error, refreshing, refresh, connect }),
+    [status, ping, latest, outdated, error, refreshing, refresh, connect],
   );
 
   return <ExtensionContext.Provider value={value}>{children}</ExtensionContext.Provider>;

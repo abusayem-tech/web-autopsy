@@ -5,7 +5,7 @@ import type {
   HealthStatus,
   Severity,
 } from "./types.js";
-import { formatBytes, formatMs } from "./labels.js";
+import { formatBytes, formatMs, shortUrl } from "./labels.js";
 
 function fid(
   ruleId: string,
@@ -38,9 +38,9 @@ export function analyzeFindings(session: AutopsySession): Finding[] {
           "failed-request",
           r.status != null && r.status >= 500 ? "critical" : "high",
           `Failed request ${r.method} ${r.url}`,
-          "This call died, so part of the page may be empty.",
+          `${r.method} ${shortUrl(r.url)} failed${r.status != null ? ` with HTTP ${r.status}` : ""}. That response is likely leaving a blank or broken UI section.`,
           "api",
-          { url: r.url, status: r.status },
+          { url: r.url, status: r.status, method: r.method },
         ),
       );
     }
@@ -54,9 +54,9 @@ export function analyzeFindings(session: AutopsySession): Finding[] {
           "slow-api",
           "medium",
           `Slow API (${formatMs(r.durationMs)})`,
-          `An API took ${formatMs(r.durationMs)}. People may wait longer than they should.`,
+          `${r.method} ${shortUrl(r.url)} took ${formatMs(r.durationMs)}. Users wait on this call before the page feels ready.`,
           "api",
-          { url: r.url, durationMs: r.durationMs },
+          { url: r.url, durationMs: r.durationMs, method: r.method },
         ),
       );
     }
@@ -70,14 +70,17 @@ export function analyzeFindings(session: AutopsySession): Finding[] {
   }
   for (const [key, count] of seen) {
     if (count >= 3) {
+      const space = key.indexOf(" ");
+      const method = space > 0 ? key.slice(0, space) : "GET";
+      const url = space > 0 ? key.slice(space + 1) : key;
       findings.push(
         fid(
           "duplicate-api",
           "medium",
           `Duplicate API calls: ${key}`,
-          "The same API was called many times. That wastes bandwidth and can slow the page.",
+          `${method} ${shortUrl(url)} ran ${count} times. Deduplicate or cache so the UI does not hammer the same endpoint.`,
           "api",
-          { key, count },
+          { key, count, url, method },
         ),
       );
     }
@@ -360,20 +363,28 @@ export function findingsToAdvice(findings: Finding[]): AdviceCard[] {
     if (f.severity === "critical" || f.severity === "high") kind = "danger";
     if (f.ruleId === "portable-token" && f.severity === "info") kind = "improve";
 
+    const detailUrl = typeof f.detail?.url === "string" ? shortUrl(f.detail.url) : undefined;
+    const detailStatus = f.detail?.status != null ? String(f.detail.status) : undefined;
+    const detailMs = typeof f.detail?.durationMs === "number" ? formatMs(f.detail.durationMs) : undefined;
+
     const suggestion =
       f.ruleId === "portable-token"
-        ? "Move secrets to a backend; rotate any exposed keys."
+        ? `Move secrets off the browser for ${detailUrl || "this request"}; rotate any exposed keys.`
         : f.ruleId === "broken-image"
-          ? "Fix the image URL or remove the broken tag."
+          ? `Fix or remove the broken image${detailUrl ? ` at ${detailUrl}` : ""}.`
           : f.ruleId === "failed-request"
-            ? "Fix the endpoint or show a friendly fallback in the UI."
-            : f.ruleId === "poor-lcp"
-              ? "Compress the hero image and preload critical assets."
-              : f.ruleId === "missing-csp"
-                ? "Add a Content-Security-Policy header."
-                : f.plainTitle.includes("Compress")
-                  ? f.plainTitle
-                  : "Review this finding and ship a fix in the next pass.";
+            ? `Debug ${detailUrl || "this endpoint"}${detailStatus ? ` (HTTP ${detailStatus})` : ""} or show a friendly fallback.`
+            : f.ruleId === "slow-api"
+              ? `Speed up ${detailUrl || "this API"}${detailMs ? ` (currently ${detailMs})` : ""} — cache, paginate, or move work server-side.`
+              : f.ruleId === "duplicate-api"
+                ? `Deduplicate calls to ${typeof f.detail?.key === "string" ? shortUrl(String(f.detail.key).replace(/^\w+\s+/, "")) : "this endpoint"} (seen ${String(f.detail?.count ?? "many")} times).`
+                : f.ruleId === "poor-lcp"
+                  ? "Compress the hero image and preload critical assets."
+                  : f.ruleId === "missing-csp"
+                    ? "Add a Content-Security-Policy header."
+                    : f.plainTitle.includes("Compress")
+                      ? f.plainTitle
+                      : "Review this finding and ship a fix in the next pass.";
 
     return {
       id: `advice-${f.id}`,

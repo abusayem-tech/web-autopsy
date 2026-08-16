@@ -12,7 +12,7 @@ import { requireApiToken, requireSession } from "@/lib/api-auth";
 import { enhanceBriefWithAi } from "@/lib/brief-ai";
 import { getUserWorkspace } from "@/lib/auth";
 import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
-import type { SavePayload } from "@web-autopsy/core";
+import { normalizePageUrl, type SavePayload } from "@web-autopsy/core";
 
 export async function GET(req: NextRequest) {
   const session = await requireSession(req);
@@ -33,6 +33,8 @@ export async function GET(req: NextRequest) {
         ilike(autopsies.title, `%${q}%`),
         ilike(autopsies.pageUrl, `%${q}%`),
         ilike(autopsies.origin, `%${q}%`),
+        sql`${autopsies.summary}->>'subtitle' ilike ${`%${q}%`}`,
+        sql`${autopsies.summary}->>'storyLine' ilike ${`%${q}%`}`,
       )!,
     );
   }
@@ -56,6 +58,71 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ captures: rows, role: ws.role });
 }
 
+async function replaceChildren(
+  autopsyId: string,
+  body: SavePayload,
+  brief: NonNullable<SavePayload["brief"]> & { model?: string },
+) {
+  await db.delete(findings).where(eq(findings.autopsyId, autopsyId));
+  await db.delete(portableApis).where(eq(portableApis.autopsyId, autopsyId));
+  await db.delete(advice).where(eq(advice.autopsyId, autopsyId));
+  await db.delete(briefs).where(eq(briefs.autopsyId, autopsyId));
+
+  if (body.findings?.length) {
+    await db.insert(findings).values(
+      body.findings.map((f) => ({
+        autopsyId,
+        ruleId: f.ruleId,
+        severity: f.severity,
+        title: f.title,
+        plainTitle: f.plainTitle,
+        detail: f.detail ?? null,
+      })),
+    );
+  }
+
+  if (body.portableApis?.length) {
+    await db.insert(portableApis).values(
+      body.portableApis.map((a) => ({
+        autopsyId,
+        method: a.method,
+        url: a.url,
+        replayClass: a.replayClass,
+        authType: a.authType ?? null,
+        humanName: a.humanName,
+        purpose: a.purpose,
+        redactedCodegen: a.redactedCodegen ?? null,
+      })),
+    );
+  }
+
+  if (body.advice?.length) {
+    await db.insert(advice).values(
+      body.advice.map((a) => ({
+        autopsyId,
+        kind: a.kind,
+        area: a.area,
+        severity: a.severity,
+        title: a.title,
+        whyItMatters: a.whyItMatters,
+        suggestion: a.suggestion,
+        relatedFindingId: a.relatedFindingId ?? null,
+      })),
+    );
+  }
+
+  await db.insert(briefs).values({
+    autopsyId,
+    story: brief.story,
+    health: brief.health,
+    apiCards: brief.apiCards,
+    dangerCards: brief.dangerCards,
+    improveCards: brief.improveCards,
+    healthyCards: brief.healthyCards,
+    model: brief.model ?? "heuristic",
+  });
+}
+
 export async function POST(req: NextRequest) {
   const authz = await requireApiToken(req);
   if (!authz) {
@@ -73,98 +140,100 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "missing fields" }, { status: 400 });
   }
 
-  const heuristicBrief = body.brief!;
-  const brief = await enhanceBriefWithAi(body, heuristicBrief);
-
-  let screenshot: Buffer | null = null;
-  if (body.screenshotBase64) {
+  const pageUrl = normalizePageUrl(body.pageUrl);
+  const origin = (() => {
     try {
-      screenshot = Buffer.from(body.screenshotBase64, "base64");
+      return new URL(pageUrl).origin;
     } catch {
-      screenshot = null;
+      return body.origin || pageUrl;
     }
-  }
+  })();
 
-  const [row] = await db
-    .insert(autopsies)
-    .values({
-      workspaceId: authz.token.workspaceId,
-      savedBy: authz.token.userId,
-      title: body.title,
-      pageUrl: body.pageUrl,
-      origin: body.origin,
-      summary: { ...body.summary, health: brief.health, storyLine: brief.story },
-      payload: body.payload,
-      htmlSnapshot: body.htmlSnapshot ?? null,
-      screenshotPng: screenshot,
-      includesSecrets: body.includesSecrets ?? false,
-    })
-    .returning();
+  const heuristicBrief = body.brief!;
+  const brief = await enhanceBriefWithAi({ ...body, pageUrl, origin }, heuristicBrief);
 
-  if (!row) {
-    return NextResponse.json({ error: "insert failed" }, { status: 500 });
-  }
-
-  if (body.findings?.length) {
-    await db.insert(findings).values(
-      body.findings.map((f) => ({
-        autopsyId: row.id,
-        ruleId: f.ruleId,
-        severity: f.severity,
-        title: f.title,
-        plainTitle: f.plainTitle,
-        detail: f.detail ?? null,
-      })),
-    );
-  }
-
-  if (body.portableApis?.length) {
-    await db.insert(portableApis).values(
-      body.portableApis.map((a) => ({
-        autopsyId: row.id,
-        method: a.method,
-        url: a.url,
-        replayClass: a.replayClass,
-        authType: a.authType ?? null,
-        humanName: a.humanName,
-        purpose: a.purpose,
-        redactedCodegen: a.redactedCodegen ?? null,
-      })),
-    );
-  }
-
-  if (body.advice?.length) {
-    await db.insert(advice).values(
-      body.advice.map((a) => ({
-        autopsyId: row.id,
-        kind: a.kind,
-        area: a.area,
-        severity: a.severity,
-        title: a.title,
-        whyItMatters: a.whyItMatters,
-        suggestion: a.suggestion,
-        relatedFindingId: a.relatedFindingId ?? null,
-      })),
-    );
-  }
-
-  await db.insert(briefs).values({
-    autopsyId: row.id,
-    story: brief.story,
+  // List metadata: keep short subtitle/storyLine — full narrative lives in briefs.
+  // Never store screenshots — images are URL previews only.
+  const summary = {
+    ...body.summary,
     health: brief.health,
-    apiCards: brief.apiCards,
-    dangerCards: brief.dangerCards,
-    improveCards: brief.improveCards,
-    healthyCards: brief.healthyCards,
-    model: brief.model ?? "heuristic",
-  });
+    pageUrl,
+    origin,
+    pageTitle: body.summary.pageTitle || body.title,
+    subtitle: body.summary.subtitle || undefined,
+    storyLine:
+      body.summary.storyLine ||
+      [body.summary.subtitle, `${body.summary.requestCount ?? 0} requests`].filter(Boolean).join(" · "),
+  };
 
-  await db.insert(activity).values({
-    workspaceId: authz.token.workspaceId,
-    userId: authz.token.userId,
-    verb: "saved",
-    autopsyId: row.id,
-  });
+  const [existing] = await db
+    .select({ id: autopsies.id })
+    .from(autopsies)
+    .where(and(eq(autopsies.workspaceId, authz.token.workspaceId), eq(autopsies.pageUrl, pageUrl)))
+    .orderBy(desc(autopsies.savedAt))
+    .limit(1);
 
-  return NextResponse.json({ id: row.id, health: brief.health });
+  let row: typeof autopsies.$inferSelect;
+  let updated = false;
+
+  if (existing) {
+    updated = true;
+    const [updatedRow] = await db
+      .update(autopsies)
+      .set({
+        savedBy: authz.token.userId,
+        title: body.title,
+        pageUrl,
+        origin,
+        savedAt: new Date(),
+        summary,
+        payload: body.payload,
+        htmlSnapshot: body.htmlSnapshot ?? null,
+        screenshotPng: null,
+        includesSecrets: body.includesSecrets ?? false,
+      })
+      .where(eq(autopsies.id, existing.id))
+      .returning();
+    if (!updatedRow) {
+      return NextResponse.json({ error: "update failed" }, { status: 500 });
+    }
+    row = updatedRow;
+    await replaceChildren(row.id, body, brief);
+    await db.insert(activity).values({
+      workspaceId: authz.token.workspaceId,
+      userId: authz.token.userId,
+      verb: "updated",
+      autopsyId: row.id,
+    });
+  } else {
+    const [inserted] = await db
+      .insert(autopsies)
+      .values({
+        workspaceId: authz.token.workspaceId,
+        savedBy: authz.token.userId,
+        title: body.title,
+        pageUrl,
+        origin,
+        summary,
+        payload: body.payload,
+        htmlSnapshot: body.htmlSnapshot ?? null,
+        screenshotPng: null,
+        includesSecrets: body.includesSecrets ?? false,
+      })
+      .returning();
+
+    if (!inserted) {
+      return NextResponse.json({ error: "insert failed" }, { status: 500 });
+    }
+    row = inserted;
+    await replaceChildren(row.id, body, brief);
+    await db.insert(activity).values({
+      workspaceId: authz.token.workspaceId,
+      userId: authz.token.userId,
+      verb: "saved",
+      autopsyId: row.id,
+    });
+  }
+
+  return NextResponse.json({ id: row.id, health: brief.health, updated });
 }

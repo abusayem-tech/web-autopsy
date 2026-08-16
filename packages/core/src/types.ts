@@ -288,7 +288,15 @@ export interface AutopsySummary {
   dangerCount: number;
   improveCount: number;
   portableApiCount: number;
+  /** Short list subtitle (not the full brief story). */
   storyLine?: string;
+  /** Page document title for listing. */
+  pageTitle?: string;
+  /** SEO / meta description for listing. */
+  subtitle?: string;
+  /** Canonical normalized page URL. */
+  pageUrl?: string;
+  origin?: string;
   stackChips?: string[];
 }
 
@@ -315,6 +323,7 @@ export interface SavePayload {
   summary: AutopsySummary;
   payload: AutopsySession;
   htmlSnapshot?: string;
+  /** @deprecated Never sent — screenshots are not stored. */
   screenshotBase64?: string;
   includesSecrets: boolean;
   findings: Finding[];
@@ -322,3 +331,50 @@ export interface SavePayload {
   advice: AdviceCard[];
   brief?: Brief;
 }
+
+/** Chunked cloud save steps (extension → API). */
+export type SaveUploadStep = "meta" | "session" | "findings" | "portable" | "finish";
+
+export interface SaveMetaChunk {
+  step: "meta";
+  title: string;
+  pageUrl: string;
+  origin: string;
+  summary: AutopsySummary;
+  htmlSnapshot?: string;
+  includesSecrets?: boolean;
+}
+
+export interface SaveSessionChunk {
+  step: "session";
+  id: string;
+  payload: AutopsySession;
+}
+
+export interface SaveFindingsChunk {
+  step: "findings";
+  id: string;
+  findings: Finding[];
+}
+
+export interface SavePortableChunk {
+  step: "portable";
+  id: string;
+  portableApis: PortableApi[];
+}
+
+export interface SaveFinishChunk {
+  step: "finish";
+  id: string;
+  advice: AdviceCard[];
+  brief?: Brief;
+  findings?: Finding[];
+  portableApis?: PortableApi[];
+}
+
+export type SaveUploadChunk =
+  | SaveMetaChunk
+  | SaveSessionChunk
+  | SaveFindingsChunk
+  | SavePortableChunk
+  | SaveFinishChunk;

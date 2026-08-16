@@ -21,23 +21,75 @@ export default defineContentScript({
       void chrome.runtime.sendMessage({ type: "PAGE_SNAPSHOT", snapshot });
     };
 
-    if (document.readyState === "complete") sendSnapshot();
-    else window.addEventListener("load", () => setTimeout(sendSnapshot, 500));
-    setInterval(sendSnapshot, 4000);
+    const hintUrl = () => {
+      void chrome.runtime.sendMessage({
+        type: "TAB_URL_HINT",
+        url: location.href,
+        title: document.title,
+      });
+    };
+
+    // Detect SPA / history navigations without a full document reload.
+    const wrapHistory = (method: "pushState" | "replaceState") => {
+      const original = history[method].bind(history);
+      history[method] = (...args: Parameters<History["pushState"]>) => {
+        const result = original(...args);
+        hintUrl();
+        return result;
+      };
+    };
+    wrapHistory("pushState");
+    wrapHistory("replaceState");
+    window.addEventListener("popstate", hintUrl);
+    window.addEventListener("hashchange", hintUrl);
+
+    if (document.readyState === "complete") {
+      hintUrl();
+      sendSnapshot();
+    } else {
+      window.addEventListener("load", () => {
+        hintUrl();
+        setTimeout(sendSnapshot, 500);
+      });
+    }
+    setInterval(() => {
+      hintUrl();
+      sendSnapshot();
+    }, 4000);
   },
 });
 
+function resourceBytes(url: string): number | undefined {
+  if (!url) return undefined;
+  try {
+    const entries = performance.getEntriesByName(url) as PerformanceResourceTiming[];
+    const last = entries[entries.length - 1];
+    if (last && last.transferSize > 0) return last.transferSize;
+    const bare = url.split("?")[0];
+    for (const e of performance.getEntriesByType("resource") as PerformanceResourceTiming[]) {
+      if (e.name.split("?")[0] === bare && e.transferSize > 0) return e.transferSize;
+    }
+  } catch {
+    /* ignore */
+  }
+  return undefined;
+}
+
 function collectSnapshot() {
-  const imgs = [...document.querySelectorAll("img")].map((img) => ({
-    url: img.currentSrc || img.src,
-    alt: img.alt,
-    width: img.width,
-    height: img.height,
-    naturalWidth: img.naturalWidth,
-    naturalHeight: img.naturalHeight,
-    broken: !img.complete || img.naturalWidth === 0,
-    lazy: img.loading === "lazy",
-  }));
+  const imgs = [...document.querySelectorAll("img")].map((img) => {
+    const url = img.currentSrc || img.src;
+    return {
+      url,
+      alt: img.alt,
+      width: img.width,
+      height: img.height,
+      naturalWidth: img.naturalWidth,
+      naturalHeight: img.naturalHeight,
+      bytes: resourceBytes(url),
+      broken: !img.complete || img.naturalWidth === 0,
+      lazy: img.loading === "lazy",
+    };
+  });
 
   const scripts = [...document.querySelectorAll("script")].map((s) => ({
     src: s.src || undefined,
@@ -147,7 +199,7 @@ function collectSnapshot() {
   }
 
   return {
-    images: imgs.filter((i) => i.url),
+    images: imgs.filter((i) => i.url && /^https?:/i.test(i.url)),
     scripts,
     links,
     forms,

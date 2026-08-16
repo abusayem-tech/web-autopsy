@@ -7,6 +7,7 @@ import {
   uuid,
   primaryKey,
   customType,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({
@@ -112,24 +113,28 @@ export const apiTokens = pgTable("api_tokens", {
   revokedAt: timestamp("revoked_at"),
 });
 
-export const autopsies = pgTable("autopsies", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  workspaceId: uuid("workspace_id")
-    .notNull()
-    .references(() => workspaces.id, { onDelete: "cascade" }),
-  savedBy: text("saved_by")
-    .notNull()
-    .references(() => users.id),
-  title: text("title").notNull(),
-  pageUrl: text("page_url").notNull(),
-  origin: text("origin").notNull(),
-  savedAt: timestamp("saved_at").notNull().defaultNow(),
-  summary: jsonb("summary").notNull().default({}),
-  payload: jsonb("payload").notNull().default({}),
-  htmlSnapshot: text("html_snapshot"),
-  screenshotPng: bytea("screenshot_png"),
-  includesSecrets: boolean("includes_secrets").notNull().default(false),
-});
+export const autopsies = pgTable(
+  "autopsies",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    savedBy: text("saved_by")
+      .notNull()
+      .references(() => users.id),
+    title: text("title").notNull(),
+    pageUrl: text("page_url").notNull(),
+    origin: text("origin").notNull(),
+    savedAt: timestamp("saved_at").notNull().defaultNow(),
+    summary: jsonb("summary").notNull().default({}),
+    payload: jsonb("payload").notNull().default({}),
+    htmlSnapshot: text("html_snapshot"),
+    screenshotPng: bytea("screenshot_png"),
+    includesSecrets: boolean("includes_secrets").notNull().default(false),
+  },
+  (t) => [uniqueIndex("autopsies_workspace_page_url_uidx").on(t.workspaceId, t.pageUrl)],
+);
 
 export const findings = pgTable("findings", {
   id: uuid("id").defaultRandom().primaryKey(),

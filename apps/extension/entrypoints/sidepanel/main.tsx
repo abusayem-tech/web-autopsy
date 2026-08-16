@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import type { AutopsySession } from "@web-autopsy/core";
 import { enrichSession } from "@web-autopsy/core";
 import {
+  confirmSwitchPage,
   downloadRebuildKit,
   fetchSession,
   getActiveTabId,
@@ -14,6 +15,9 @@ function Sidepanel() {
   const [tabId, setTabId] = useState<number | null>(null);
   const [session, setSession] = useState<AutopsySession | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [pendingPage, setPendingPage] = useState<{ url: string; title?: string } | null>(null);
+  const [trackedUrl, setTrackedUrl] = useState<string | null>(null);
+  const [switching, setSwitching] = useState(false);
 
   useEffect(() => {
     const tick = async () => {
@@ -22,6 +26,8 @@ function Sidepanel() {
       if (id != null) {
         const data = await fetchSession(id);
         setSession(enrichSession(data.session));
+        setPendingPage(data.pendingPage ?? null);
+        setTrackedUrl(data.trackedUrl ?? data.session.pageUrl);
       }
     };
     void tick();
@@ -34,7 +40,39 @@ function Sidepanel() {
   return (
     <div className="min-h-screen space-y-3 bg-zinc-50 p-3 text-sm text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
       <div className="font-semibold">Web Autopsy</div>
-      <p className="truncate text-xs text-zinc-500">{session?.pageUrl || "No active page"}</p>
+      <p className="truncate text-xs text-zinc-500">{trackedUrl || session?.pageUrl || "No active page"}</p>
+
+      {pendingPage && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950">
+          <p className="font-semibold">New page detected</p>
+          <p className="mt-1 truncate opacity-80">{pendingPage.url}</p>
+          <p className="mt-1">Old capture stays until you switch.</p>
+          <button
+            type="button"
+            disabled={switching || tabId == null}
+            className="mt-2 min-h-9 w-full rounded-lg bg-teal-600 text-xs font-semibold text-white disabled:opacity-60"
+            onClick={() => {
+              if (tabId == null) return;
+              setSwitching(true);
+              void confirmSwitchPage(tabId)
+                .then(async (r) => {
+                  if (!r.ok) throw new Error(r.error || "Switch failed");
+                  if (r.reloaded) await new Promise((x) => setTimeout(x, 1500));
+                  const data = await fetchSession(tabId);
+                  setSession(enrichSession(data.session));
+                  setPendingPage(data.pendingPage ?? null);
+                  setTrackedUrl(data.trackedUrl ?? null);
+                  setMsg("Tracking new page");
+                })
+                .catch((e) => setMsg(e.message))
+                .finally(() => setSwitching(false));
+            }}
+          >
+            {switching ? "Switching…" : "Clear & track new page"}
+          </button>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-2">
         <Stat label="Requests" value={String(session?.performance.requestCount ?? 0)} />
         <Stat label="In danger" value={String(danger)} />

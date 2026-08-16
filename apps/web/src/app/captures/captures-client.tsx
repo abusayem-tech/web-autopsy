@@ -17,7 +17,10 @@ type Capture = {
     pageSizeBytes?: number;
     loadTimeMs?: number;
     storyLine?: string;
+    pageTitle?: string;
+    subtitle?: string;
     dangerCount?: number;
+    requestCount?: number;
   };
 };
 
@@ -98,13 +101,21 @@ export function CapturesClient() {
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="truncate text-lg font-semibold">{c.title}</h2>
+                    <h2 className="truncate text-lg font-semibold">
+                      {c.summary?.pageTitle || c.title}
+                    </h2>
                     <HealthPill health={c.summary?.health} />
                   </div>
-                  <p className="mt-1 truncate text-sm text-zinc-500">{c.pageUrl}</p>
-                  <p className="mt-2 text-sm text-zinc-600">
-                    {c.summary?.storyLine ||
-                      `${formatBytes(c.summary?.pageSizeBytes ?? 0)} · ${formatMs(c.summary?.loadTimeMs)}`}
+                  <p className="mt-1 truncate text-sm font-medium text-zinc-700">{c.pageUrl}</p>
+                  {(c.summary?.subtitle || c.summary?.storyLine) && (
+                    <p className="mt-1 line-clamp-2 text-sm text-zinc-600">
+                      {c.summary?.subtitle || c.summary?.storyLine}
+                    </p>
+                  )}
+                  <p className="mt-2 text-xs text-zinc-500">
+                    {c.summary?.storyLine && c.summary?.subtitle
+                      ? c.summary.storyLine
+                      : `${formatBytes(c.summary?.pageSizeBytes ?? 0)} · ${formatMs(c.summary?.loadTimeMs)}`}
                   </p>
                 </div>
                 <div className="text-right text-xs text-zinc-500">

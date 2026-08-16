@@ -49,22 +49,54 @@ export function humanApiName(method: string, url: string, body?: string): string
 }
 
 export function humanApiPurpose(method: string, url: string, body?: string): string {
+  let host = "";
+  let path = "";
+  try {
+    const u = new URL(url);
+    host = u.hostname;
+    path = u.pathname;
+  } catch {
+    /* ignore */
+  }
+
   const gql = graphqlOperationName(body);
-  if (gql) return `Runs the GraphQL operation “${gql}”.`;
+  if (gql) {
+    return `Runs GraphQL “${gql}” on ${host || "the API host"}${path ? ` (${path})` : ""}.`;
+  }
 
   const segs = pathSegments(url);
   const last = segs[segs.length - 1] ?? "data";
+  const prev = segs[segs.length - 2];
   const label = titleCase(last).toLowerCase();
+  const parent = prev ? titleCase(prev).toLowerCase() : null;
   const m = method.toUpperCase();
+  const lower = url.toLowerCase();
 
-  if (url.toLowerCase().includes("search")) {
-    return `Asks the server to search for matching ${label}.`;
+  let action: string;
+  if (lower.includes("search") || lower.includes("query") || lower.includes("find")) {
+    action = `Searches for matching ${label}`;
+  } else if (lower.includes("auth") || lower.includes("login") || lower.includes("session") || lower.includes("oauth")) {
+    action = `Handles authentication / session for ${label}`;
+  } else if (lower.includes("upload") || lower.includes("media") || lower.includes("asset")) {
+    action = `Moves file or media data (${label})`;
+  } else if (lower.includes("webhook") || lower.includes("hook")) {
+    action = `Receives or fires a webhook about ${label}`;
+  } else if (m === "GET" && /^\d+$/.test(last) && parent) {
+    action = `Loads one ${parent} record by id`;
+  } else if (m === "GET") {
+    action = `Fetches ${label} from the server`;
+  } else if (m === "POST") {
+    action = `Creates or submits ${label}`;
+  } else if (m === "PUT" || m === "PATCH") {
+    action = `Updates ${label} on the server`;
+  } else if (m === "DELETE") {
+    action = `Deletes ${label} on the server`;
+  } else {
+    action = `Talks to the server about ${label}`;
   }
-  if (m === "GET") return `Fetches ${label} from the server.`;
-  if (m === "POST") return `Sends new ${label} to the server.`;
-  if (m === "PUT" || m === "PATCH") return `Updates ${label} on the server.`;
-  if (m === "DELETE") return `Removes ${label} on the server.`;
-  return `Talks to the server about ${label}.`;
+
+  const where = host ? ` Endpoint: ${host}${path || ""}.` : "";
+  return `${action}.${where}`;
 }
 
 export function formatBytes(n: number): string {
@@ -76,4 +108,14 @@ export function formatBytes(n: number): string {
 export function formatMs(n: number): string {
   if (n < 1000) return `${Math.round(n)} ms`;
   return `${(n / 1000).toFixed(2)} s`;
+}
+
+export function shortUrl(url: string, max = 72): string {
+  try {
+    const u = new URL(url);
+    const s = `${u.hostname}${u.pathname}${u.search}`;
+    return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+  } catch {
+    return url.length > max ? `${url.slice(0, max - 1)}…` : url;
+  }
 }

@@ -89,7 +89,7 @@ export async function GET(req: NextRequest, { params }: Params) {
       ),
     );
     if (row.htmlSnapshot) folder.file("page.html", row.htmlSnapshot);
-    if (row.screenshotPng) folder.file("screenshot.png", row.screenshotPng);
+    // Screenshots are not stored; image URLs live in payload.images.
     const payload = row.payload as {
       images?: unknown;
       performance?: unknown;

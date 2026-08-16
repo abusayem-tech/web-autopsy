@@ -15,9 +15,21 @@ const links = [
 ];
 
 function ExtensionStatusChip() {
-  const { status, refreshing } = useExtension();
+  const { status, refreshing, outdated } = useExtension();
   if (status === "checking") {
     return <span className="hidden text-xs text-zinc-400 sm:inline">Checking extension…</span>;
+  }
+  if (outdated && (status === "connected" || status === "installed")) {
+    return (
+      <Link
+        href="/extension"
+        className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-900 ring-1 ring-amber-200"
+        title="Extension update available"
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+        Update extension
+      </Link>
+    );
   }
   if (status === "connected") {
     return (
@@ -55,9 +67,27 @@ function ExtensionStatusChip() {
 
 function ExtensionBanner() {
   const pathname = usePathname();
-  const { status } = useExtension();
-  if (status === "connected" || status === "checking") return null;
+  const { status, outdated, ping, latest } = useExtension();
+  if (status === "checking") return null;
   if (pathname.startsWith("/extension")) return null;
+
+  if (outdated && (status === "connected" || status === "installed")) {
+    return (
+      <div className="border-b border-amber-200 bg-amber-50">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm text-amber-950">
+          <p>
+            Extension v{ping?.version} is outdated. Latest is v{latest?.version}. Uninstall the old build, then
+            download and Load unpacked again.
+          </p>
+          <Link href="/extension" className="font-semibold text-teal-800 underline-offset-2 hover:underline">
+            Update now
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "connected") return null;
 
   return (
     <div className="border-b border-amber-200 bg-amber-50">

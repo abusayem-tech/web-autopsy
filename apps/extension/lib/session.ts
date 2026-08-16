@@ -1,4 +1,4 @@
-import type { AutopsySession } from "@web-autopsy/core";
+import type { AutopsySession, SavePayload, SaveUploadChunk } from "@web-autopsy/core";
 import { buildSavePayload } from "@web-autopsy/core";
 import JSZip from "jszip";
 
@@ -15,8 +15,21 @@ export async function fetchSession(tabId: number): Promise<{
   session: AutopsySession;
   paused: boolean;
   deepCapture: boolean;
+  trackedUrl?: string;
+  liveUrl?: string;
+  pendingPage?: { url: string; title?: string } | null;
+  holdCapture?: boolean;
 }> {
   return chrome.runtime.sendMessage({ type: "GET_SESSION", tabId });
+}
+
+export async function confirmSwitchPage(tabId: number) {
+  return chrome.runtime.sendMessage({ type: "CONFIRM_SWITCH_PAGE", tabId }) as Promise<{
+    ok: boolean;
+    reloaded?: boolean;
+    trackedUrl?: string;
+    error?: string;
+  }>;
 }
 
 export async function loadOptions(): Promise<{ apiBaseUrl: string; apiToken: string }> {
@@ -27,33 +40,115 @@ export async function loadOptions(): Promise<{ apiBaseUrl: string; apiToken: str
   };
 }
 
-export async function saveToCloud(tabId: number, title?: string, includeSecrets = false) {
+export type SaveProgress = {
+  percent: number;
+  label: string;
+};
+
+async function postChunk(
+  apiBaseUrl: string,
+  apiToken: string,
+  chunk: SaveUploadChunk,
+): Promise<{ id: string; updated?: boolean; progress?: number; health?: string }> {
+  const res = await fetch(`${apiBaseUrl.replace(/\/$/, "")}/api/autopsies/save`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiToken}`,
+    },
+    body: JSON.stringify(chunk),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    if (/FUNCTION_PAYLOAD_TOO_LARGE|Request Entity Too Large|413/i.test(text)) {
+      throw new Error("Chunk too large for the server. Try again after updating the extension.");
+    }
+    throw new Error(text || `Save failed (${res.status})`);
+  }
+  return res.json() as Promise<{ id: string; updated?: boolean; progress?: number; health?: string }>;
+}
+
+/**
+ * Sequential upload: meta → session → findings → portable → finish.
+ * No screenshots or binary images — image URLs only.
+ */
+export async function saveToCloud(
+  tabId: number,
+  options?: {
+    title?: string;
+    includeSecrets?: boolean;
+    onProgress?: (p: SaveProgress) => void;
+  },
+) {
+  const onProgress = options?.onProgress;
+  onProgress?.({ percent: 5, label: "Collecting page text…" });
   await chrome.runtime.sendMessage({ type: "GET_HTML", tabId });
-  await chrome.runtime.sendMessage({ type: "CAPTURE_SCREENSHOT", tabId });
+
+  onProgress?.({ percent: 10, label: "Building capture…" });
   const { session } = await fetchSession(tabId);
-  const payload = buildSavePayload(session, { title, includeSecrets, includeBodies: false });
+  // Never attach screenshots for cloud save.
+  session.screenshotDataUrl = undefined;
+  const payload: SavePayload = buildSavePayload(session, {
+    title: options?.title,
+    includeSecrets: options?.includeSecrets ?? false,
+    includeBodies: false,
+  });
+
   const opts = await loadOptions();
   if (!opts.apiBaseUrl || !opts.apiToken) {
     throw new Error("Set API base URL and token in Options first.");
   }
-  const res = await fetch(`${opts.apiBaseUrl.replace(/\/$/, "")}/api/autopsies`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${opts.apiToken}`,
-    },
-    body: JSON.stringify(payload),
+
+  onProgress?.({ percent: 20, label: "Uploading page metadata…" });
+  const meta = await postChunk(opts.apiBaseUrl, opts.apiToken, {
+    step: "meta",
+    title: payload.title,
+    pageUrl: payload.pageUrl,
+    origin: payload.origin,
+    summary: payload.summary,
+    htmlSnapshot: payload.htmlSnapshot,
+    includesSecrets: payload.includesSecrets,
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `Save failed (${res.status})`);
-  }
-  return res.json() as Promise<{ id: string }>;
+  const id = meta.id;
+  const updated = Boolean(meta.updated);
+
+  onProgress?.({ percent: 40, label: "Uploading session data…" });
+  await postChunk(opts.apiBaseUrl, opts.apiToken, {
+    step: "session",
+    id,
+    payload: payload.payload,
+  });
+
+  onProgress?.({ percent: 60, label: "Uploading findings…" });
+  await postChunk(opts.apiBaseUrl, opts.apiToken, {
+    step: "findings",
+    id,
+    findings: payload.findings,
+  });
+
+  onProgress?.({ percent: 80, label: "Uploading portable APIs…" });
+  await postChunk(opts.apiBaseUrl, opts.apiToken, {
+    step: "portable",
+    id,
+    portableApis: payload.portableApis,
+  });
+
+  onProgress?.({ percent: 92, label: "Finalizing brief…" });
+  const finish = await postChunk(opts.apiBaseUrl, opts.apiToken, {
+    step: "finish",
+    id,
+    advice: payload.advice,
+    brief: payload.brief,
+    findings: payload.findings,
+    portableApis: payload.portableApis,
+  });
+
+  onProgress?.({ percent: 100, label: updated ? "Updated" : "Saved" });
+  return { id, updated, health: finish.health };
 }
 
 export async function downloadRebuildKit(tabId: number) {
   await chrome.runtime.sendMessage({ type: "GET_HTML", tabId });
-  const shot = await chrome.runtime.sendMessage({ type: "CAPTURE_SCREENSHOT", tabId });
   const { session } = await fetchSession(tabId);
   const enriched = buildSavePayload(session, { includeSecrets: false });
   const zip = new JSZip();
@@ -67,11 +162,17 @@ export async function downloadRebuildKit(tabId: number) {
     ),
   );
   folder.file("page.html", session.htmlSnapshot || "");
-  if (shot?.dataUrl) {
-    const b64 = String(shot.dataUrl).split(",")[1] || "";
-    folder.file("screenshot.png", b64, { base64: true });
-  }
-  folder.file("images.json", JSON.stringify(session.images, null, 2));
+  // Image URLs only — no binary downloads.
+  folder.file(
+    "images.json",
+    JSON.stringify(
+      (session.images || [])
+        .filter((i) => /^https?:/i.test(i.url))
+        .map((i) => ({ url: i.url, alt: i.alt, bytes: i.bytes, width: i.width, height: i.height })),
+      null,
+      2,
+    ),
+  );
   folder.file(
     "styles.json",
     JSON.stringify(session.scripts.filter((s) => s.src).map((s) => s.src), null, 2),

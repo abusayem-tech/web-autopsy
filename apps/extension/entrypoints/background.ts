@@ -5,16 +5,40 @@ import {
   detectTrackers,
   emptySession,
   enrichSession,
+  normalizePageUrl,
 } from "@web-autopsy/core";
+
+type PendingPage = { url: string; title?: string };
 
 type TabState = {
   session: AutopsySession;
   paused: boolean;
   deepCapture: boolean;
   requestIndex: Map<string, string>;
+  /** Page URL this session is locked to. */
+  trackedUrl: string;
+  /** Browser navigated away — wait for user confirm before switching. */
+  pendingPage: PendingPage | null;
+  /** Stop merging new network/DOM into the locked session. */
+  holdCapture: boolean;
 };
 
 const tabs = new Map<number, TabState>();
+/** Tabs that already got a one-time fresh reload for the current tracked page. */
+const freshCaptureStarted = new Set<number>();
+
+function samePage(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  try {
+    return normalizePageUrl(a) === normalizePageUrl(b);
+  } catch {
+    return a === b;
+  }
+}
+
+function captureActive(state: TabState): boolean {
+  return !state.paused && !state.holdCapture;
+}
 
 function mapType(type?: string): ResourceType {
   switch (type) {
@@ -43,11 +67,15 @@ function mapType(type?: string): ResourceType {
 function ensureTab(tabId: number, url?: string): TabState {
   let state = tabs.get(tabId);
   if (!state) {
+    const tracked = url && url.startsWith("http") ? url : url || "about:blank";
     state = {
-      session: emptySession(tabId, url || "about:blank"),
+      session: emptySession(tabId, tracked),
       paused: false,
       deepCapture: false,
       requestIndex: new Map(),
+      trackedUrl: tracked,
+      pendingPage: null,
+      holdCapture: false,
     };
     tabs.set(tabId, state);
   }
@@ -61,7 +89,36 @@ function resetTab(tabId: number, url: string) {
     paused: prev?.paused ?? false,
     deepCapture: prev?.deepCapture ?? false,
     requestIndex: new Map(),
+    trackedUrl: url,
+    pendingPage: null,
+    holdCapture: false,
   });
+}
+
+/** Detect navigation away from the locked page — never auto-clear session. */
+function noteLiveUrl(state: TabState, liveUrl: string | undefined, title?: string) {
+  if (!liveUrl || !liveUrl.startsWith("http")) return;
+
+  if (!state.trackedUrl || state.trackedUrl === "about:blank" || !state.trackedUrl.startsWith("http")) {
+    state.trackedUrl = liveUrl;
+    state.session.pageUrl = liveUrl;
+    if (title) state.session.pageTitle = title;
+    state.pendingPage = null;
+    state.holdCapture = false;
+    return;
+  }
+
+  if (samePage(liveUrl, state.trackedUrl)) {
+    if (title) state.session.pageTitle = title;
+    if (state.pendingPage) {
+      state.pendingPage = null;
+      state.holdCapture = false;
+    }
+    return;
+  }
+
+  state.pendingPage = { url: liveUrl, title };
+  state.holdCapture = true;
 }
 
 function headersToObject(
@@ -82,6 +139,19 @@ function isFirstParty(pageUrl: string, requestUrl: string): boolean {
   }
 }
 
+function sessionResponse(state: TabState, liveUrl?: string) {
+  refreshDerived(state);
+  return {
+    session: enrichSession(state.session),
+    paused: state.paused,
+    deepCapture: state.deepCapture,
+    trackedUrl: state.trackedUrl,
+    liveUrl: liveUrl || state.pendingPage?.url || state.trackedUrl,
+    pendingPage: state.pendingPage,
+    holdCapture: state.holdCapture,
+  };
+}
+
 export default defineBackground(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(() => undefined);
 
@@ -93,12 +163,19 @@ export default defineBackground(() => {
   });
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    if (changeInfo.status === "loading" && tab.url && tab.url.startsWith("http")) {
-      resetTab(tabId, tab.url);
+    if (!tab.url?.startsWith("http")) return;
+    const state = ensureTab(tabId, tab.url);
+
+    if (changeInfo.url || changeInfo.status === "loading" || changeInfo.status === "complete") {
+      noteLiveUrl(state, tab.url, tab.title);
     }
-    if (changeInfo.status === "complete" && tab.url?.startsWith("http")) {
-      const state = ensureTab(tabId, tab.url);
-      state.session.pageUrl = tab.url;
+
+    if (
+      changeInfo.status === "complete" &&
+      tab.url.startsWith("http") &&
+      samePage(tab.url, state.trackedUrl) &&
+      !state.holdCapture
+    ) {
       state.session.pageTitle = tab.title;
       void fetchWellKnown(tabId, tab.url);
       void fetchCookies(tabId, tab.url);
@@ -107,13 +184,14 @@ export default defineBackground(() => {
 
   chrome.tabs.onRemoved.addListener((tabId) => {
     tabs.delete(tabId);
+    freshCaptureStarted.delete(tabId);
   });
 
   chrome.webRequest.onBeforeRequest.addListener(
     (details) => {
       if (details.tabId < 0) return;
       const state = ensureTab(details.tabId);
-      if (state.paused) return;
+      if (!captureActive(state)) return;
       const id = `wr-${details.requestId}`;
       state.requestIndex.set(details.requestId, id);
       const entry: NetworkEntry = {
@@ -143,7 +221,7 @@ export default defineBackground(() => {
     (details) => {
       if (details.tabId < 0) return;
       const state = tabs.get(details.tabId);
-      if (!state || state.paused) return;
+      if (!state || !captureActive(state)) return;
       const id = state.requestIndex.get(details.requestId);
       const entry = state.session.requests.find((r) => r.id === id);
       if (entry) entry.requestHeaders = headersToObject(details.requestHeaders);
@@ -156,7 +234,7 @@ export default defineBackground(() => {
     (details) => {
       if (details.tabId < 0) return;
       const state = tabs.get(details.tabId);
-      if (!state || state.paused) return;
+      if (!state || !captureActive(state)) return;
       const id = state.requestIndex.get(details.requestId);
       const entry = state.session.requests.find((r) => r.id === id);
       if (!entry) return;
@@ -190,7 +268,7 @@ export default defineBackground(() => {
     (details) => {
       if (details.tabId < 0) return;
       const state = tabs.get(details.tabId);
-      if (!state || state.paused) return;
+      if (!state || !captureActive(state)) return;
       const id = state.requestIndex.get(details.requestId);
       const entry = state.session.requests.find((r) => r.id === id);
       if (entry) {
@@ -205,12 +283,12 @@ export default defineBackground(() => {
     void (async () => {
       try {
         if (message?.type === "PING") {
-          const cfg = await chrome.storage.sync.get(["apiBaseUrl", "apiToken"]);
+          const data = await chrome.storage.sync.get(["apiBaseUrl", "apiToken"]);
           sendResponse({
             ok: true,
             version: chrome.runtime.getManifest().version,
-            paired: Boolean(cfg.apiBaseUrl && cfg.apiToken),
-            apiBaseUrl: cfg.apiBaseUrl || null,
+            paired: Boolean(data.apiBaseUrl && data.apiToken),
+            apiBaseUrl: data.apiBaseUrl || null,
           });
           return;
         }
@@ -240,13 +318,38 @@ export default defineBackground(() => {
           const tabId = message.tabId ?? sender.tab?.id;
           if (tabId == null) return sendResponse({ error: "no tab" });
           const state = ensureTab(tabId);
-          refreshDerived(state);
-          sendResponse({ session: enrichSession(state.session), paused: state.paused, deepCapture: state.deepCapture });
+          let liveUrl: string | undefined;
+          try {
+            const tab = await chrome.tabs.get(tabId);
+            liveUrl = tab.url;
+            noteLiveUrl(state, tab.url, tab.title);
+          } catch {
+            /* ignore */
+          }
+          sendResponse(sessionResponse(state, liveUrl));
+          return;
+        }
+        if (message?.type === "TAB_URL_HINT" && sender.tab?.id != null) {
+          const state = ensureTab(sender.tab.id, String(message.url || sender.tab.url || ""));
+          noteLiveUrl(
+            state,
+            String(message.url || sender.tab.url || ""),
+            String(message.title || sender.tab.title || ""),
+          );
+          sendResponse({
+            ok: true,
+            pending: Boolean(state.pendingPage),
+            holdCapture: state.holdCapture,
+          });
           return;
         }
         if (message?.type === "PAGE_SNAPSHOT" && sender.tab?.id != null) {
           const state = ensureTab(sender.tab.id, sender.tab.url);
-          if (state.paused) return sendResponse({ ok: true });
+          noteLiveUrl(state, sender.tab.url, sender.tab.title);
+          if (!captureActive(state)) return sendResponse({ ok: true, held: true });
+          if (sender.tab.url && !samePage(sender.tab.url, state.trackedUrl)) {
+            return sendResponse({ ok: true, held: true });
+          }
           const snap = message.snapshot as Partial<AutopsySession>;
           if (snap.images) state.session.images = snap.images;
           if (snap.scripts) state.session.scripts = snap.scripts;
@@ -273,15 +376,21 @@ export default defineBackground(() => {
             };
           }
           state.session.tabId = sender.tab.id;
-          if (sender.tab.url) state.session.pageUrl = sender.tab.url;
-          if (sender.tab.title) state.session.pageTitle = sender.tab.title;
+          state.session.pageUrl = state.trackedUrl;
+          if (sender.tab.title && samePage(sender.tab.url || "", state.trackedUrl)) {
+            state.session.pageTitle = sender.tab.title;
+          }
           refreshDerived(state);
           sendResponse({ ok: true });
           return;
         }
         if (message?.type === "INJECT_EVENT" && sender.tab?.id != null) {
           const state = ensureTab(sender.tab.id);
-          if (state.paused) return sendResponse({ ok: true });
+          noteLiveUrl(state, sender.tab.url, sender.tab.title);
+          if (!captureActive(state)) return sendResponse({ ok: true });
+          if (sender.tab.url && !samePage(sender.tab.url, state.trackedUrl)) {
+            return sendResponse({ ok: true });
+          }
           const ev = message.event as {
             kind: string;
             payload: Record<string, unknown>;
@@ -328,11 +437,69 @@ export default defineBackground(() => {
         if (message?.type === "CLEAR_SESSION") {
           const tab = await chrome.tabs.get(message.tabId);
           resetTab(message.tabId, tab.url || "about:blank");
+          freshCaptureStarted.delete(message.tabId);
           sendResponse({ ok: true });
           return;
         }
+        if (message?.type === "CONFIRM_SWITCH_PAGE") {
+          const tabId = message.tabId as number;
+          const state = ensureTab(tabId);
+          const tab = await chrome.tabs.get(tabId);
+          const nextUrl = state.pendingPage?.url || tab.url || state.trackedUrl;
+          if (!nextUrl.startsWith("http")) {
+            sendResponse({ ok: false, error: "no http page to switch to" });
+            return;
+          }
+          freshCaptureStarted.delete(tabId);
+          resetTab(tabId, nextUrl);
+          freshCaptureStarted.add(tabId);
+          await chrome.tabs.reload(tabId);
+          sendResponse({ ok: true, reloaded: true, trackedUrl: nextUrl });
+          return;
+        }
+        if (message?.type === "DISMISS_PAGE_CHANGE") {
+          const state = ensureTab(message.tabId);
+          sendResponse({
+            ok: true,
+            pendingPage: state.pendingPage,
+            holdCapture: state.holdCapture,
+          });
+          return;
+        }
+        if (message?.type === "START_FRESH_CAPTURE") {
+          const tabId = message.tabId as number;
+          const state = ensureTab(tabId);
+          const tab = await chrome.tabs.get(tabId);
+          if (state.pendingPage && !samePage(tab.url || "", state.trackedUrl)) {
+            sendResponse({
+              ok: false,
+              needConfirm: true,
+              pendingPage: state.pendingPage,
+              error: "New page detected — confirm switch before refreshing capture.",
+            });
+            return;
+          }
+          const url = tab.url || state.trackedUrl;
+          if (!url.startsWith("http")) {
+            sendResponse({ ok: false, error: "not an http page" });
+            return;
+          }
+          if (
+            freshCaptureStarted.has(tabId) &&
+            samePage(url, state.trackedUrl) &&
+            state.session.requests.length > 0
+          ) {
+            sendResponse({ ok: true, skipped: true });
+            return;
+          }
+          freshCaptureStarted.add(tabId);
+          resetTab(tabId, url);
+          await chrome.tabs.reload(tabId);
+          sendResponse({ ok: true, reloaded: true });
+          return;
+        }
         if (message?.type === "CAPTURE_SCREENSHOT") {
-          const dataUrl = await chrome.tabs.captureVisibleTab({ format: "png" });
+          const dataUrl = await chrome.tabs.captureVisibleTab({ format: "jpeg", quality: 55 });
           const state = ensureTab(message.tabId);
           state.session.screenshotDataUrl = dataUrl;
           sendResponse({ dataUrl });
@@ -344,7 +511,7 @@ export default defineBackground(() => {
             func: () => document.documentElement.outerHTML,
           });
           const state = ensureTab(message.tabId);
-          state.session.htmlSnapshot = String(result || "").slice(0, 1_500_000);
+          state.session.htmlSnapshot = String(result || "").slice(0, 400_000);
           sendResponse({ html: state.session.htmlSnapshot });
           return;
         }
