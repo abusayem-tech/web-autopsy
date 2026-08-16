@@ -1,4 +1,10 @@
 import { defineConfig } from "wxt";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = dirname(fileURLToPath(import.meta.url));
+const extensionKey = readFileSync(join(root, "keys/extension-public.base64"), "utf8").trim();
 
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
@@ -6,6 +12,8 @@ export default defineConfig({
     name: "Web Autopsy",
     description:
       "Capture page autopsies — network, APIs, images, performance — and save to your team archive.",
+    // Stable extension ID so the website can auto-pair tokens via chrome.runtime.sendMessage.
+    key: extensionKey,
     permissions: [
       "storage",
       "tabs",
@@ -17,6 +25,15 @@ export default defineConfig({
       "activeTab",
     ],
     host_permissions: ["<all_urls>"],
+    externally_connectable: {
+      matches: [
+        "https://web-autopsy.vercel.app/*",
+        "https://web-autopsy-abusayem.vercel.app/*",
+        "https://*.vercel.app/*",
+        "http://localhost:3000/*",
+        "http://127.0.0.1:3000/*",
+      ],
+    },
     action: {
       default_title: "Web Autopsy",
     },

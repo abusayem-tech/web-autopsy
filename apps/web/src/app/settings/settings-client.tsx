@@ -50,14 +50,13 @@ export function SettingsClient() {
       <section className="rounded-2xl border border-zinc-200 bg-white p-5">
         <h2 className="text-lg font-semibold">Chrome extension</h2>
         <p className="mt-2 text-sm text-zinc-600">
-          Download the packaged extension from this site, then load it in Chrome Developer mode. Chrome blocks sites from
-          installing extensions automatically.
+          Connect from the website — we create the token and push it into Chrome automatically. No copying secrets.
         </p>
         <a
           href="/extension"
           className="mt-4 inline-flex min-h-11 items-center rounded-xl bg-teal-600 px-4 text-sm font-semibold text-white"
         >
-          Download &amp; install
+          Auto-connect extension
         </a>
       </section>
 

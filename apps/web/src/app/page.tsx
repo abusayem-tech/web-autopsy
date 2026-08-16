@@ -1,16 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { authClient } from "@/lib/auth-client";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
-export default function HomePage() {
+function HomeAuth() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const search = useSearchParams();
+  const next = search.get("next") || "/captures";
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -28,7 +30,7 @@ export default function HomePage() {
         const res = await authClient.signIn.email({ email, password });
         if (res.error) throw new Error(res.error.message || "Sign in failed");
       }
-      router.push("/captures");
+      router.push(next.startsWith("/") ? next : "/captures");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -52,7 +54,7 @@ export default function HomePage() {
           <p className="mt-3 text-sm text-zinc-500">
             Unsaved browsing never leaves your machine.{" "}
             <a href="/extension" className="font-medium text-teal-700 hover:underline">
-              Download the Chrome extension
+              Connect the Chrome extension
             </a>
             .
           </p>
@@ -107,5 +109,13 @@ export default function HomePage() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={<div className="min-h-dvh bg-zinc-50" />}>
+      <HomeAuth />
+    </Suspense>
   );
 }

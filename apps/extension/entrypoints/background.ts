@@ -201,6 +201,38 @@ export default defineBackground(() => {
     { urls: ["<all_urls>"] },
   );
 
+  chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
+    void (async () => {
+      try {
+        if (message?.type === "PING") {
+          const cfg = await chrome.storage.sync.get(["apiBaseUrl", "apiToken"]);
+          sendResponse({
+            ok: true,
+            version: chrome.runtime.getManifest().version,
+            paired: Boolean(cfg.apiBaseUrl && cfg.apiToken),
+            apiBaseUrl: cfg.apiBaseUrl || null,
+          });
+          return;
+        }
+        if (message?.type === "PAIR") {
+          const apiBaseUrl = String(message.apiBaseUrl || "").replace(/\/$/, "");
+          const apiToken = String(message.apiToken || "");
+          if (!apiBaseUrl || !apiToken) {
+            sendResponse({ ok: false, error: "missing credentials" });
+            return;
+          }
+          await chrome.storage.sync.set({ apiBaseUrl, apiToken });
+          sendResponse({ ok: true, paired: true, apiBaseUrl });
+          return;
+        }
+        sendResponse({ ok: false, error: "unknown message" });
+      } catch (err) {
+        sendResponse({ ok: false, error: err instanceof Error ? err.message : "pair failed" });
+      }
+    })();
+    return true;
+  });
+
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     void (async () => {
       try {
