@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
+import { useExtension } from "@/components/extension-provider";
 
 export function SettingsClient() {
   const router = useRouter();
+  const { status: extensionStatus, ping } = useExtension();
   const [tokens, setTokens] = useState<Array<{ id: string; name: string; createdAt: string; revokedAt?: string | null }>>([]);
   const [freshToken, setFreshToken] = useState<string | null>(null);
   const [role, setRole] = useState("");
@@ -50,14 +53,26 @@ export function SettingsClient() {
       <section className="rounded-2xl border border-zinc-200 bg-white p-5">
         <h2 className="text-lg font-semibold">Chrome extension</h2>
         <p className="mt-2 text-sm text-zinc-600">
-          Connect from the website — we create the token and push it into Chrome automatically. No copying secrets.
+          Status:{" "}
+          <span className="font-medium text-zinc-900">
+            {extensionStatus === "connected"
+              ? `Connected${ping?.apiBaseUrl ? ` · ${ping.apiBaseUrl}` : ""}`
+              : extensionStatus === "installed"
+                ? "Installed — finish connect"
+                : extensionStatus === "checking"
+                  ? "Checking…"
+                  : "Not installed"}
+          </span>
         </p>
-        <a
+        <p className="mt-2 text-sm text-zinc-600">
+          Prefer auto-connect on Extension — it creates the token and pushes it into Chrome without copy-paste.
+        </p>
+        <Link
           href="/extension"
           className="mt-4 inline-flex min-h-11 items-center rounded-xl bg-teal-600 px-4 text-sm font-semibold text-white"
         >
-          Auto-connect extension
-        </a>
+          Open extension setup
+        </Link>
       </section>
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-5">
@@ -87,7 +102,7 @@ export function SettingsClient() {
             <p className="font-medium text-amber-900">Copy now — shown once</p>
             <code className="mt-2 block break-all rounded-lg bg-white p-2 font-mono text-xs">{freshToken}</code>
             <p className="mt-2 text-amber-800">
-              Paste into the extension Options as API token. Base URL:{" "}
+              Prefer Extension auto-connect instead of pasting. Base URL:{" "}
               <code className="rounded bg-white px-1">{typeof window !== "undefined" ? window.location.origin : ""}</code>
             </p>
           </div>

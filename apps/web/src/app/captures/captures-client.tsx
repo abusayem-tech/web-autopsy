@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { HealthPill } from "@/components/health-pill";
+import { useExtension } from "@/components/extension-provider";
 import { formatBytes, formatMs } from "@/lib/utils";
 
 type Capture = {
@@ -21,6 +22,7 @@ type Capture = {
 };
 
 export function CapturesClient() {
+  const { status: extensionStatus } = useExtension();
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
@@ -41,12 +43,21 @@ export function CapturesClient() {
     };
   }, [q]);
 
+  const extensionHint =
+    extensionStatus === "connected"
+      ? "Browse a site, open Web Autopsy, then click Save."
+      : extensionStatus === "installed"
+        ? "Finish connecting the extension, then Save a page."
+        : "Connect the Chrome extension, then Save a page from the inspector.";
+
   return (
     <div>
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Captures</h1>
-          <p className="mt-1 text-zinc-600">Saved autopsies for your workspace. Nothing appears here until someone clicks Save.</p>
+          <p className="mt-1 text-zinc-600">
+            Saved autopsies for your workspace. Nothing appears here until someone clicks Save.
+          </p>
         </div>
         <input
           value={q}
@@ -61,23 +72,18 @@ export function CapturesClient() {
       {!loading && !captures.length && (
         <div className="rounded-2xl border border-dashed border-zinc-300 bg-white p-8 text-center">
           <h2 className="text-lg font-semibold">No captures yet</h2>
-          <p className="mx-auto mt-2 max-w-md text-zinc-600">
-            Install the Chrome extension, create an API token in Settings, browse a site, then click Save. Your team will
-            see a Story briefing here.
-          </p>
+          <p className="mx-auto mt-2 max-w-md text-zinc-600">{extensionHint}</p>
           <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
-            <Link
-              href="/extension"
-              className="inline-flex min-h-11 items-center rounded-xl bg-teal-600 px-4 text-sm font-semibold text-white"
-            >
-              Download extension
-            </Link>
-            <Link
-              href="/settings"
-              className="inline-flex min-h-11 items-center rounded-xl border border-zinc-300 px-4 text-sm font-semibold text-zinc-800"
-            >
-              Create API token
-            </Link>
+            {extensionStatus !== "connected" ? (
+              <Link
+                href="/extension"
+                className="inline-flex min-h-11 items-center rounded-xl bg-teal-600 px-4 text-sm font-semibold text-white"
+              >
+                {extensionStatus === "installed" ? "Finish connect" : "Set up extension"}
+              </Link>
+            ) : (
+              <p className="text-sm font-medium text-teal-800">Extension connected — capture from Chrome.</p>
+            )}
           </div>
         </div>
       )}
@@ -103,9 +109,7 @@ export function CapturesClient() {
                 </div>
                 <div className="text-right text-xs text-zinc-500">
                   <div>{new Date(c.savedAt).toLocaleString()}</div>
-                  <div className="mt-1">
-                    {c.summary?.dangerCount ? `${c.summary.dangerCount} in danger` : "—"}
-                  </div>
+                  <div className="mt-1">{c.summary?.dangerCount ? `${c.summary.dangerCount} in danger` : "—"}</div>
                   <Link
                     href={`/origins/${encodeURIComponent(c.origin)}`}
                     className="mt-2 inline-block text-teal-700 underline-offset-2 hover:underline"
