@@ -70,14 +70,14 @@ export default defineUnlistedScript(() => {
   const send = XHR.send;
   const setRequestHeader = XHR.setRequestHeader;
 
-  XHR.open = function (method: string, url: string | URL, ...rest: unknown[]) {
+  XHR.open = function (method: string, url: string | URL, async?: boolean, username?: string | null, password?: string | null) {
     (this as XMLHttpRequest & { __wa?: { method: string; url: string; headers: Record<string, string>; started: number } }).__wa = {
       method: String(method).toUpperCase(),
       url: String(url),
       headers: {},
       started: 0,
     };
-    return open.apply(this, [method, url, ...(rest as [boolean?, string?, string?])]);
+    return open.call(this, method, url, async ?? true, username, password);
   };
 
   XHR.setRequestHeader = function (name: string, value: string) {
@@ -143,10 +143,12 @@ export default defineUnlistedScript(() => {
   try {
     const RTC = window.RTCPeerConnection;
     if (RTC) {
-      window.RTCPeerConnection = function (...args: unknown[]) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).RTCPeerConnection = function (...args: unknown[]) {
         post("fingerprint", { api: "RTCPeerConnection" });
-        return new RTC(...(args as ConstructorParameters<typeof RTCPeerConnection>));
-      } as typeof RTCPeerConnection;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return new (RTC as any)(...args);
+      };
       window.RTCPeerConnection.prototype = RTC.prototype;
     }
   } catch {
