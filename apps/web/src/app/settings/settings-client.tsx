@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 
 export function SettingsClient() {
+  const router = useRouter();
   const [tokens, setTokens] = useState<Array<{ id: string; name: string; createdAt: string; revokedAt?: string | null }>>([]);
   const [freshToken, setFreshToken] = useState<string | null>(null);
   const [role, setRole] = useState("");
@@ -100,7 +102,7 @@ export function SettingsClient() {
       <button
         type="button"
         className="text-sm text-zinc-500 underline"
-        onClick={() => void authClient.signOut().then(() => (window.location.href = "/"))}
+        onClick={() => void authClient.signOut().then(() => router.push("/"))}
       >
         Sign out
       </button>
