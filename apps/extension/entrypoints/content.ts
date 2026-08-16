@@ -1,32 +1,86 @@
 const CHANNEL = "__WEB_AUTOPSY__";
 
+/** True while this content-script instance can still talk to the extension. */
+function extensionAlive(): boolean {
+  try {
+    return Boolean(chrome.runtime?.id);
+  } catch {
+    return false;
+  }
+}
+
+function isContextInvalidated(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return /extension context invalidated|context invalidated/i.test(msg);
+}
+
+/**
+ * Send a message to the background, or stop quietly if the extension was
+ * reloaded/updated (old content scripts stay alive until the tab refreshes).
+ */
+function safeSend(message: unknown, onDead?: () => void): void {
+  if (!extensionAlive()) {
+    onDead?.();
+    return;
+  }
+  try {
+    const maybePromise = chrome.runtime.sendMessage(message) as Promise<unknown> | undefined;
+    void Promise.resolve(maybePromise).catch((err: unknown) => {
+      if (isContextInvalidated(err)) onDead?.();
+    });
+  } catch (err) {
+    if (isContextInvalidated(err)) onDead?.();
+  }
+}
+
 export default defineContentScript({
   matches: ["<all_urls>"],
   runAt: "document_start",
   async main() {
+    let dead = false;
+    let snapshotTimer: ReturnType<typeof setInterval> | null = null;
+    let loadTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const stop = () => {
+      if (dead) return;
+      dead = true;
+      if (snapshotTimer != null) clearInterval(snapshotTimer);
+      if (loadTimer != null) clearTimeout(loadTimer);
+      snapshotTimer = null;
+      loadTimer = null;
+    };
+
     await injectScript("/inject.js", { keepInDom: true });
 
     window.addEventListener("message", (event) => {
-      if (event.source !== window) return;
+      if (dead || event.source !== window) return;
       const data = event.data;
       if (!data || data.source !== CHANNEL) return;
-      void chrome.runtime.sendMessage({
-        type: "INJECT_EVENT",
-        event: { kind: data.kind, payload: data.payload },
-      });
+      safeSend(
+        {
+          type: "INJECT_EVENT",
+          event: { kind: data.kind, payload: data.payload },
+        },
+        stop,
+      );
     });
 
     const sendSnapshot = () => {
+      if (dead) return;
       const snapshot = collectSnapshot();
-      void chrome.runtime.sendMessage({ type: "PAGE_SNAPSHOT", snapshot });
+      safeSend({ type: "PAGE_SNAPSHOT", snapshot }, stop);
     };
 
     const hintUrl = () => {
-      void chrome.runtime.sendMessage({
-        type: "TAB_URL_HINT",
-        url: location.href,
-        title: document.title,
-      });
+      if (dead) return;
+      safeSend(
+        {
+          type: "TAB_URL_HINT",
+          url: location.href,
+          title: document.title,
+        },
+        stop,
+      );
     };
 
     // Detect SPA / history navigations without a full document reload.
@@ -49,10 +103,14 @@ export default defineContentScript({
     } else {
       window.addEventListener("load", () => {
         hintUrl();
-        setTimeout(sendSnapshot, 500);
+        loadTimer = setTimeout(sendSnapshot, 500);
       });
     }
-    setInterval(() => {
+    snapshotTimer = setInterval(() => {
+      if (!extensionAlive()) {
+        stop();
+        return;
+      }
       hintUrl();
       sendSnapshot();
     }, 4000);

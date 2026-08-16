@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { HealthPill } from "@/components/health-pill";
+import { CodeBlockWithCopy, CopyButton, UrlLine } from "@/components/url-line";
 import { formatBytes, formatMs } from "@/lib/utils";
 import { Download, FileJson, Printer } from "lucide-react";
 import type { AutopsySession } from "@web-autopsy/core";
@@ -78,6 +79,8 @@ export function CaptureDetailClient({ id }: { id: string }) {
   const [tab, setTab] = useState<Tab>("overview");
   const [comment, setComment] = useState("");
   const [netFilter, setNetFilter] = useState<"all" | "api" | "image" | "script">("all");
+  const [overviewView, setOverviewView] = useState<"technical" | "simple">("technical");
+  const [findingsView, setFindingsView] = useState<"technical" | "simple">("technical");
 
   async function load() {
     const res = await fetch(`/api/autopsies/${id}`);
@@ -184,15 +187,9 @@ export function CaptureDetailClient({ id }: { id: string }) {
             </h1>
             <HealthPill health={data.brief?.health || summary.health} />
           </div>
-          <a
-            href={data.autopsy.pageUrl}
-            className="mt-1 block break-all text-sm text-teal-700"
-            target="_blank"
-            rel="noreferrer"
-            title={data.autopsy.pageUrl}
-          >
-            {data.autopsy.pageUrl}
-          </a>
+          <div className="mt-1">
+            <UrlLine url={data.autopsy.pageUrl} className="text-sm" mono={false} />
+          </div>
           {(summary.subtitle || summary.storyLine) && (
             <p className="mt-1 break-words text-sm text-zinc-600">{summary.subtitle || summary.storyLine}</p>
           )}
@@ -238,26 +235,53 @@ export function CaptureDetailClient({ id }: { id: string }) {
 
       {tab === "overview" && (
         <div className="space-y-6">
-          <section className="rounded-2xl border border-zinc-200 bg-white p-5">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Story</h2>
-            <p className="mt-2 text-lg leading-relaxed text-zinc-800">{data.brief?.story}</p>
-          </section>
-          <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[
-              { label: "Page size", value: formatBytes(summary.pageSizeBytes ?? perf?.totalTransferBytes ?? 0) },
-              { label: "Load time", value: formatMs(summary.loadTimeMs ?? perf?.loadEventMs) },
-              { label: "LCP", value: formatMs(summary.lcpMs ?? perf?.lcpMs) },
-              { label: "Requests", value: String(summary.requestCount ?? perf?.requestCount ?? 0) },
-            ].map((m) => (
-              <div key={m.label} className="min-w-0 rounded-2xl border border-zinc-200 bg-white p-3 sm:p-4">
-                <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">{m.label}</div>
-                <div className="mt-1 break-words text-lg font-semibold tabular-nums sm:text-xl">{m.value}</div>
-              </div>
-            ))}
-          </section>
-          <AdviceGroup title="In danger" items={danger} tone="danger" />
-          <AdviceGroup title="Improve" items={improve} tone="improve" />
-          <AdviceGroup title="Going well" items={healthy} tone="healthy" />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-zinc-500">
+              {overviewView === "simple" ? "Plain-language summary" : "Technical metrics and advice"}
+            </p>
+            <ViewModeToggle value={overviewView} onChange={setOverviewView} />
+          </div>
+
+          {overviewView === "simple" ? (
+            <>
+              <section className="rounded-2xl border border-zinc-200 bg-white p-5">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Story</h2>
+                <p className="mt-2 text-lg leading-relaxed text-zinc-800">{data.brief?.story}</p>
+                <p className="mt-3 text-sm text-zinc-600">
+                  About {formatBytes(summary.pageSizeBytes ?? perf?.totalTransferBytes ?? 0)} ·{" "}
+                  {summary.requestCount ?? perf?.requestCount ?? 0} requests
+                  {danger.length ? ` · ${danger.length} issue${danger.length === 1 ? "" : "s"} need attention` : ""}.
+                </p>
+              </section>
+              <AdviceGroup title="Fix these first" items={danger} tone="danger" mode="simple" />
+              <AdviceGroup title="Worth improving" items={improve} tone="improve" mode="simple" />
+              <AdviceGroup title="Looking good" items={healthy} tone="healthy" mode="simple" />
+            </>
+          ) : (
+            <>
+              <section className="rounded-2xl border border-zinc-200 bg-white p-5">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Story</h2>
+                <p className="mt-2 text-lg leading-relaxed text-zinc-800">{data.brief?.story}</p>
+              </section>
+              <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {[
+                  { label: "Page size", value: formatBytes(summary.pageSizeBytes ?? perf?.totalTransferBytes ?? 0) },
+                  { label: "Load time", value: formatMs(summary.loadTimeMs ?? perf?.loadEventMs) },
+                  { label: "LCP", value: formatMs(summary.lcpMs ?? perf?.lcpMs) },
+                  { label: "Requests", value: String(summary.requestCount ?? perf?.requestCount ?? 0) },
+                ].map((m) => (
+                  <div key={m.label} className="min-w-0 rounded-2xl border border-zinc-200 bg-white p-3 sm:p-4">
+                    <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">{m.label}</div>
+                    <div className="mt-1 break-words text-lg font-semibold tabular-nums sm:text-xl">{m.value}</div>
+                  </div>
+                ))}
+              </section>
+              <AdviceGroup title="In danger" items={danger} tone="danger" mode="technical" />
+              <AdviceGroup title="Improve" items={improve} tone="improve" mode="technical" />
+              <AdviceGroup title="Going well" items={healthy} tone="healthy" mode="technical" />
+            </>
+          )}
+
           <CommentsBlock
             comments={data.comments}
             role={data.role}
@@ -269,25 +293,53 @@ export function CaptureDetailClient({ id }: { id: string }) {
       )}
 
       {tab === "findings" && (
-        <ul className="space-y-3">
-          {findings.map((f) => (
-            <li key={f.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
-              <div className="flex flex-wrap gap-2 text-xs">
-                <Chip>{f.severity}</Chip>
-                {f.area && <Chip>{f.area}</Chip>}
-                <Chip>{f.ruleId}</Chip>
-              </div>
-              <h3 className="mt-2 break-words font-medium">{f.plainTitle}</h3>
-              <p className="mt-1 break-words text-sm text-zinc-600">{f.title}</p>
-              {f.detail && (
-                <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-zinc-950 p-2 text-[10px] text-zinc-100">
-                  {JSON.stringify(f.detail, null, 2)}
-                </pre>
-              )}
-            </li>
-          ))}
-          {!findings.length && <Empty>No findings in this capture.</Empty>}
-        </ul>
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-zinc-500">
+              {findingsView === "simple"
+                ? "What stood out, in plain language"
+                : "Rule IDs, HTTP detail, and evidence"}
+            </p>
+            <ViewModeToggle value={findingsView} onChange={setFindingsView} />
+          </div>
+          <ul className="space-y-3">
+            {findings.map((f) =>
+              findingsView === "simple" ? (
+                <li key={f.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    {f.severity === "critical" || f.severity === "high"
+                      ? "Needs attention"
+                      : f.severity === "medium"
+                        ? "Worth a look"
+                        : "Note"}
+                  </p>
+                  <h3 className="mt-1 break-words text-base font-medium">{f.plainTitle}</h3>
+                  {f.title !== f.plainTitle && (
+                    <p className="mt-1 break-words text-sm text-zinc-600">{f.title}</p>
+                  )}
+                </li>
+              ) : (
+                <li key={f.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <Chip>{f.severity}</Chip>
+                    {f.area && <Chip>{f.area}</Chip>}
+                    <Chip>{f.ruleId}</Chip>
+                  </div>
+                  <h3 className="mt-2 break-words font-medium">{f.plainTitle}</h3>
+                  <p className="mt-1 break-words text-sm text-zinc-600">{f.title}</p>
+                  {f.detail && (
+                    <CodeBlockWithCopy
+                      title="Detail"
+                      code={JSON.stringify(f.detail, null, 2)}
+                      maxClass="max-h-40"
+                    />
+                  )}
+                </li>
+              ),
+            )}
+            {!findings.length && <Empty>No findings in this capture.</Empty>}
+          </ul>
+        </div>
       )}
 
       {tab === "network" && (
@@ -334,7 +386,17 @@ export function CaptureDetailClient({ id }: { id: string }) {
                       {r.transferSize != null ? formatBytes(r.transferSize) : "—"}
                     </td>
                     <td className="min-w-0 px-3 py-2 font-mono text-xs" title={r.url}>
-                      <span className="block truncate">{r.url}</span>
+                      <span className="flex min-w-0 items-center gap-1">
+                        <a
+                          href={r.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="min-w-0 truncate text-teal-700 underline-offset-2 hover:underline"
+                        >
+                          {r.url}
+                        </a>
+                        <CopyButton text={r.url} />
+                      </span>
                     </td>
                   </tr>
                 ))}
@@ -355,16 +417,17 @@ export function CaptureDetailClient({ id }: { id: string }) {
                 {a.status != null && <Chip>{String(a.status)}</Chip>}
               </div>
               <p className="mt-1 break-words text-sm text-zinc-600">{a.purpose}</p>
-              <code className="mt-2 block break-all text-xs text-zinc-500" title={`${a.method} ${a.url}`}>
-                {a.method} {a.url}
-              </code>
+              <div className="mt-2 flex min-w-0 flex-wrap items-start gap-1.5">
+                <span className="shrink-0 font-mono text-xs text-zinc-500">{a.method}</span>
+                <UrlLine url={a.url} className="text-xs" />
+              </div>
               {a.durationMs != null && (
                 <p className="mt-1 text-xs text-zinc-500">Duration {formatMs(a.durationMs)}</p>
               )}
               {a.redactedCodegen?.curl && (
-                <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-zinc-950 p-2 text-[10px] text-zinc-100">
-                  {a.redactedCodegen.curl}
-                </pre>
+                <div className="mt-3">
+                  <CodeBlockWithCopy title="curl" code={a.redactedCodegen.curl} maxClass="max-h-40" />
+                </div>
               )}
             </li>
           ))}
@@ -399,8 +462,11 @@ export function CaptureDetailClient({ id }: { id: string }) {
                 />
                 <div className="space-y-0.5 p-2 text-[10px] text-zinc-500">
                   <div>{img.bytes != null && img.bytes > 0 ? formatBytes(img.bytes) : "size unknown"}</div>
-                  <div className="min-w-0 truncate" title={img.url}>
-                    {img.url}
+                  <div className="flex min-w-0 items-center gap-1">
+                    <span className="min-w-0 truncate" title={img.url}>
+                      {img.url}
+                    </span>
+                    <CopyButton text={img.url} />
                   </div>
                 </div>
               </a>
@@ -445,9 +511,7 @@ export function CaptureDetailClient({ id }: { id: string }) {
               <ul className="space-y-2 text-sm">
                 {perf.slowestApis.slice(0, 12).map((a, i) => (
                   <li key={i} className="flex min-w-0 justify-between gap-3">
-                    <span className="min-w-0 flex-1 truncate font-mono text-xs" title={a.url}>
-                      {a.url}
-                    </span>
+                    <UrlLine url={a.url} className="min-w-0 flex-1 text-xs" />
                     <span className="shrink-0 text-zinc-500">{formatMs(a.durationMs)}</span>
                   </li>
                 ))}
@@ -459,9 +523,7 @@ export function CaptureDetailClient({ id }: { id: string }) {
               <ul className="space-y-2 text-sm">
                 {perf.largestResources.slice(0, 12).map((a, i) => (
                   <li key={i} className="flex min-w-0 justify-between gap-3">
-                    <span className="min-w-0 flex-1 truncate font-mono text-xs" title={a.url}>
-                      [{a.type}] {a.url}
-                    </span>
+                    <UrlLine url={a.url} display={`[${a.type}] ${a.url}`} className="min-w-0 flex-1 text-xs" />
                     <span className="shrink-0 text-zinc-500">{formatBytes(a.bytes)}</span>
                   </li>
                 ))}
@@ -481,9 +543,7 @@ export function CaptureDetailClient({ id }: { id: string }) {
               </div>
               <p className="mt-2 whitespace-pre-wrap break-words">{c.message}</p>
               {c.stack && (
-                <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-zinc-950 p-2 text-[10px] text-zinc-300">
-                  {c.stack}
-                </pre>
+                <CodeBlockWithCopy title="Stack" code={c.stack} maxClass="max-h-32" />
               )}
             </li>
           ))}
@@ -510,8 +570,13 @@ export function CaptureDetailClient({ id }: { id: string }) {
           <Section title={`Forms (${session.forms?.length ?? 0})`}>
             {(session.forms || []).slice(0, 40).map((f, i) => (
               <div key={i} className="border-t border-zinc-100 py-2 text-sm first:border-0">
-                <div className="break-all font-medium">
-                  {f.method} {f.action || "(same page)"}
+                <div className="flex flex-wrap items-start gap-1.5 font-medium">
+                  <span>{f.method}</span>
+                  {f.action ? (
+                    <UrlLine url={f.action} className="text-sm" mono={false} />
+                  ) : (
+                    <span className="text-zinc-500">(same page)</span>
+                  )}
                 </div>
                 <div className="text-xs text-zinc-500">
                   {f.fieldCount} fields
@@ -524,9 +589,13 @@ export function CaptureDetailClient({ id }: { id: string }) {
           <Section title={`Links (sample ${(session.links || []).slice(0, 40).length})`}>
             <ul className="max-h-64 space-y-1 overflow-auto text-xs">
               {(session.links || []).slice(0, 40).map((l, i) => (
-                <li key={i} className="truncate" title={l.href}>
-                  {l.external ? "[ext] " : ""}
-                  {l.text || l.href}
+                <li key={i} className="min-w-0">
+                  <UrlLine
+                    url={l.href}
+                    display={`${l.external ? "[ext] " : ""}${l.text || l.href}`}
+                    className="text-xs"
+                    mono={false}
+                  />
                 </li>
               ))}
             </ul>
@@ -607,9 +676,10 @@ export function CaptureDetailClient({ id }: { id: string }) {
           </Section>
           {session.security?.headers && Object.keys(session.security.headers).length > 0 && (
             <Section title="Raw headers">
-              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-zinc-950 p-3 text-[10px] text-zinc-100">
-                {JSON.stringify(session.security.headers, null, 2)}
-              </pre>
+              <CodeBlockWithCopy
+                code={JSON.stringify(session.security.headers, null, 2)}
+                maxClass="max-h-64"
+              />
             </Section>
           )}
         </div>
@@ -630,8 +700,11 @@ export function CaptureDetailClient({ id }: { id: string }) {
               {Object.keys(session.storage?.local || {})
                 .slice(0, 40)
                 .map((k) => (
-                  <li key={k} className="break-all" title={k}>
-                    local: {k}
+                  <li key={k} className="flex min-w-0 items-start gap-1.5">
+                    <span className="min-w-0 break-all" title={k}>
+                      local: {k}
+                    </span>
+                    <CopyButton text={k} />
                   </li>
                 ))}
             </ul>
@@ -640,8 +713,8 @@ export function CaptureDetailClient({ id }: { id: string }) {
             <Section title="Source maps">
               <ul className="max-h-40 space-y-1 overflow-auto text-xs font-mono">
                 {session.runtime.sourceMapUrls.map((u, i) => (
-                  <li key={i} className="break-all" title={u}>
-                    {u}
+                  <li key={i} className="min-w-0">
+                    <UrlLine url={u} className="text-xs" />
                   </li>
                 ))}
               </ul>
@@ -674,6 +747,36 @@ function statusLabel(status?: number) {
   return `HTTP ${status}`;
 }
 
+function ViewModeToggle({
+  value,
+  onChange,
+}: {
+  value: "technical" | "simple";
+  onChange: (v: "technical" | "simple") => void;
+}) {
+  return (
+    <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 text-xs">
+      {(
+        [
+          ["technical", "Technical"],
+          ["simple", "Simple"],
+        ] as const
+      ).map(([id, label]) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => onChange(id)}
+          className={`min-h-8 rounded-md px-2.5 font-medium ${
+            value === id ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-800"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function Chip({ children }: { children: React.ReactNode }) {
   return (
     <span className="inline-flex rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700">
@@ -692,10 +795,13 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function KV({ label, value }: { label: string; value: string }) {
+  const linkable = /^https?:\/\//i.test(value);
   return (
     <div className="grid gap-0.5 text-sm sm:grid-cols-[8rem_1fr] sm:gap-2">
       <dt className="text-xs text-zinc-500 sm:text-sm">{label}</dt>
-      <dd className="min-w-0 break-words text-zinc-800">{value}</dd>
+      <dd className="min-w-0 break-words text-zinc-800">
+        {linkable ? <UrlLine url={value} className="text-sm" mono={false} /> : value}
+      </dd>
     </div>
   );
 }
@@ -712,10 +818,12 @@ function AdviceGroup({
   title,
   items,
   tone,
+  mode = "technical",
 }: {
   title: string;
   items: Advice[];
   tone: "danger" | "improve" | "healthy";
+  mode?: "technical" | "simple";
 }) {
   if (!items.length) return null;
   const ring =
@@ -728,13 +836,24 @@ function AdviceGroup({
     <section className={`rounded-2xl border bg-white p-5 ${ring}`}>
       <h2 className="text-lg font-semibold">{title}</h2>
       <ul className="mt-3 space-y-3">
-        {items.map((a) => (
-          <li key={a.id} className="rounded-xl border border-zinc-100 bg-zinc-50/80 p-3">
-            <div className="break-words font-medium">{a.title}</div>
-            <p className="mt-1 break-words text-sm text-zinc-600">{a.whyItMatters}</p>
-            <p className="mt-2 break-words text-sm font-medium text-teal-800">What to do: {a.suggestion}</p>
-          </li>
-        ))}
+        {items.map((a) =>
+          mode === "simple" ? (
+            <li key={a.id} className="border-t border-zinc-100 pt-3 first:border-0 first:pt-0">
+              <div className="break-words font-medium">{a.title}</div>
+              <p className="mt-1 break-words text-sm font-medium text-teal-800">{a.suggestion}</p>
+            </li>
+          ) : (
+            <li key={a.id} className="rounded-xl border border-zinc-100 bg-zinc-50/80 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Chip>{a.severity}</Chip>
+                <Chip>{a.area}</Chip>
+                <div className="break-words font-medium">{a.title}</div>
+              </div>
+              <p className="mt-1 break-words text-sm text-zinc-600">{a.whyItMatters}</p>
+              <p className="mt-2 break-words text-sm font-medium text-teal-800">What to do: {a.suggestion}</p>
+            </li>
+          ),
+        )}
       </ul>
     </section>
   );

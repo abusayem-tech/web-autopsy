@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { HealthPill } from "@/components/health-pill";
+import { UrlLine } from "@/components/url-line";
 
 export function SearchClient() {
   const [q, setQ] = useState("");
@@ -37,18 +38,20 @@ export function SearchClient() {
       />
       <ul className="space-y-2">
         {captures.map((c) => (
-          <li key={c.id}>
-            <Link href={`/captures/${c.id}`} className="block min-w-0 rounded-xl border border-zinc-200 bg-white p-3">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <span className="min-w-0 truncate font-medium" title={c.title}>
-                  {c.title}
-                </span>
-                <HealthPill health={c.summary?.health} />
-              </div>
-              <div className="mt-0.5 break-all text-sm text-zinc-500" title={c.pageUrl}>
-                {c.pageUrl}
-              </div>
-            </Link>
+          <li key={c.id} className="min-w-0 rounded-xl border border-zinc-200 bg-white p-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <Link
+                href={`/captures/${c.id}`}
+                className="min-w-0 truncate font-medium hover:text-teal-800"
+                title={c.title}
+              >
+                {c.title}
+              </Link>
+              <HealthPill health={c.summary?.health} />
+            </div>
+            <div className="mt-0.5">
+              <UrlLine url={c.pageUrl} className="text-sm" mono={false} />
+            </div>
           </li>
         ))}
       </ul>

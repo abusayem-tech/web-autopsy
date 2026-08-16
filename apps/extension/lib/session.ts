@@ -2,6 +2,19 @@ import type { AutopsySession, SavePayload, SaveUploadChunk } from "@web-autopsy/
 import { buildSavePayload } from "@web-autopsy/core";
 import JSZip from "jszip";
 
+export function isExtensionContextInvalidated(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return /extension context invalidated|context invalidated/i.test(msg);
+}
+
+export function extensionAlive(): boolean {
+  try {
+    return Boolean(chrome.runtime?.id);
+  } catch {
+    return false;
+  }
+}
+
 export async function getActiveTabId(fallback?: number): Promise<number | null> {
   if (fallback != null) return fallback;
   const params = new URLSearchParams(location.search);
@@ -25,6 +38,16 @@ export async function fetchSession(tabId: number): Promise<{
 
 export async function confirmSwitchPage(tabId: number) {
   return chrome.runtime.sendMessage({ type: "CONFIRM_SWITCH_PAGE", tabId }) as Promise<{
+    ok: boolean;
+    reloaded?: boolean;
+    trackedUrl?: string;
+    error?: string;
+  }>;
+}
+
+/** Clear capture data, reload the page, and start a fresh capture. */
+export async function refreshCapture(tabId: number) {
+  return chrome.runtime.sendMessage({ type: "REFRESH_CAPTURE", tabId }) as Promise<{
     ok: boolean;
     reloaded?: boolean;
     trackedUrl?: string;

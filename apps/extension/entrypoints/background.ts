@@ -478,6 +478,23 @@ export default defineBackground(() => {
           sendResponse({ ok: true, reloaded: true, trackedUrl: nextUrl });
           return;
         }
+        if (message?.type === "REFRESH_CAPTURE") {
+          const tabId = message.tabId as number;
+          const state = ensureTab(tabId);
+          const tab = await chrome.tabs.get(tabId);
+          // Prefer the live browser URL so a pending navigation is adopted on refresh.
+          const nextUrl = state.pendingPage?.url || tab.url || state.trackedUrl;
+          if (!nextUrl.startsWith("http")) {
+            sendResponse({ ok: false, error: "not an http page" });
+            return;
+          }
+          freshCaptureStarted.delete(tabId);
+          resetTab(tabId, nextUrl);
+          freshCaptureStarted.add(tabId);
+          await chrome.tabs.reload(tabId);
+          sendResponse({ ok: true, reloaded: true, trackedUrl: nextUrl });
+          return;
+        }
         if (message?.type === "DISMISS_PAGE_CHANGE") {
           const state = ensureTab(message.tabId);
           sendResponse({

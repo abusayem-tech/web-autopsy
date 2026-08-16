@@ -1,14 +1,18 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { AdviceCard, AutopsySession, Finding, ImageEntry, NetworkEntry, PortableApi } from "@web-autopsy/core";
-import { enrichSession, formatBytes, formatMs, isTrackerUrl, shortUrl } from "@web-autopsy/core";
+import { buildBrief, enrichSession, formatBytes, formatMs, isTrackerUrl, shortUrl } from "@web-autopsy/core";
 import {
   confirmSwitchPage,
   downloadRebuildKit,
+  extensionAlive,
   fetchSession,
   getActiveTabId,
+  isExtensionContextInvalidated,
+  refreshCapture,
   saveToCloud,
 } from "../../lib/session";
+import { CodeBlockWithCopy, CopyButton, UrlLine } from "../../lib/url-ui";
 import "~/assets/style.css";
 
 type Tab =
@@ -27,6 +31,39 @@ type Tab =
 
 type NetScope = "site" | "first" | "third" | "all";
 type NetKind = "all" | "api" | "script" | "stylesheet" | "image" | "font" | "other";
+type InsightView = "technical" | "simple";
+
+function ViewModeToggle({
+  value,
+  onChange,
+}: {
+  value: InsightView;
+  onChange: (v: InsightView) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 text-xs dark:border-zinc-700 dark:bg-zinc-900">
+      {(
+        [
+          ["technical", "Technical"],
+          ["simple", "Simple"],
+        ] as const
+      ).map(([id, label]) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => onChange(id)}
+          className={`min-h-8 rounded-md px-2.5 font-medium ${
+            value === id
+              ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-50"
+              : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function App() {
   const [tabId, setTabId] = useState<number | null>(null);
@@ -37,66 +74,86 @@ function App() {
   const [status, setStatus] = useState<string | null>(null);
   const [savePercent, setSavePercent] = useState<number | null>(null);
   const [reloading, setReloading] = useState(false);
-  const [netScope, setNetScope] = useState<NetScope>("site");
-  const [netKind, setNetKind] = useState<NetKind>("api");
+  const [netScope, setNetScope] = useState<NetScope>("all");
+  const [netKind, setNetKind] = useState<NetKind>("all");
   const [netHideTrackers, setNetHideTrackers] = useState(true);
   const [netFailedOnly, setNetFailedOnly] = useState(false);
   const [portableOpen, setPortableOpen] = useState<string | null>(null);
   const [pendingPage, setPendingPage] = useState<{ url: string; title?: string } | null>(null);
   const [trackedUrl, setTrackedUrl] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
+  const [overviewView, setOverviewView] = useState<InsightView>("technical");
+  const [findingsView, setFindingsView] = useState<InsightView>("technical");
 
   async function refresh(id: number) {
-    const data = await fetchSession(id);
-    setSession(enrichSession(data.session));
-    setPaused(data.paused);
-    setDeep(data.deepCapture);
-    setPendingPage(data.pendingPage ?? null);
-    setTrackedUrl(data.trackedUrl ?? data.session.pageUrl);
-  }
-
-  useEffect(() => {
-    void getActiveTabId().then(async (id) => {
-      setTabId(id);
-      if (id == null) return;
+    if (!extensionAlive()) return;
+    try {
       const data = await fetchSession(id);
       setSession(enrichSession(data.session));
       setPaused(data.paused);
       setDeep(data.deepCapture);
       setPendingPage(data.pendingPage ?? null);
       setTrackedUrl(data.trackedUrl ?? data.session.pageUrl);
+    } catch (e) {
+      if (isExtensionContextInvalidated(e)) {
+        setStatus("Extension was reloaded — refresh this inspector tab.");
+        return;
+      }
+      throw e;
+    }
+  }
 
-      // Only auto-start a clean capture when there is no pending page change
-      // and this tab has no data yet for the tracked page.
-      if (!data.pendingPage && (data.session.requests?.length ?? 0) === 0) {
-        setReloading(true);
-        setStatus("Starting clean capture for this page…");
-        try {
-          const res = (await chrome.runtime.sendMessage({ type: "START_FRESH_CAPTURE", tabId: id })) as {
-            skipped?: boolean;
-            reloaded?: boolean;
-            needConfirm?: boolean;
-            pendingPage?: { url: string; title?: string };
-          };
-          if (res?.needConfirm && res.pendingPage) {
-            setPendingPage(res.pendingPage);
-          } else if (res?.reloaded) {
-            await new Promise((r) => setTimeout(r, 1800));
+  useEffect(() => {
+    void getActiveTabId().then(async (id) => {
+      setTabId(id);
+      if (id == null) return;
+      try {
+        const data = await fetchSession(id);
+        setSession(enrichSession(data.session));
+        setPaused(data.paused);
+        setDeep(data.deepCapture);
+        setPendingPage(data.pendingPage ?? null);
+        setTrackedUrl(data.trackedUrl ?? data.session.pageUrl);
+
+        // Only auto-start a clean capture when there is no pending page change
+        // and this tab has no data yet for the tracked page.
+        if (!data.pendingPage && (data.session.requests?.length ?? 0) === 0) {
+          setReloading(true);
+          setStatus("Starting clean capture for this page…");
+          try {
+            const res = (await chrome.runtime.sendMessage({ type: "START_FRESH_CAPTURE", tabId: id })) as {
+              skipped?: boolean;
+              reloaded?: boolean;
+              needConfirm?: boolean;
+              pendingPage?: { url: string; title?: string };
+            };
+            if (res?.needConfirm && res.pendingPage) {
+              setPendingPage(res.pendingPage);
+            } else if (res?.reloaded) {
+              await new Promise((r) => setTimeout(r, 1800));
+            }
+          } catch (e) {
+            if (isExtensionContextInvalidated(e)) {
+              setStatus("Extension was reloaded — refresh this inspector tab.");
+              return;
+            }
+          } finally {
+            setReloading(false);
+            setStatus(null);
+            void refresh(id);
           }
-        } catch {
-          /* ignore */
-        } finally {
-          setReloading(false);
-          setStatus(null);
-          void refresh(id);
+        }
+      } catch (e) {
+        if (isExtensionContextInvalidated(e)) {
+          setStatus("Extension was reloaded — refresh this inspector tab.");
         }
       }
     });
   }, []);
 
   useEffect(() => {
-    if (tabId == null || reloading) return;
-    const t = setInterval(() => void refresh(tabId), 2000);
+    if (tabId == null || reloading || !extensionAlive()) return;
+    const t = setInterval(() => void refresh(tabId).catch(() => undefined), 2000);
     return () => clearInterval(t);
   }, [tabId, reloading]);
 
@@ -152,7 +209,7 @@ function App() {
   if (!session) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 p-6 text-sm text-zinc-500 dark:bg-zinc-950">
-        {reloading ? "Reloading page for a clean capture…" : "Loading session… Open a website tab first."}
+        {reloading ? "Clearing data and reloading the page…" : "Loading session… Open a website tab first."}
       </div>
     );
   }
@@ -194,10 +251,31 @@ function App() {
             <h1 className="break-words text-lg font-semibold sm:truncate sm:text-xl" title={session.pageTitle || session.pageUrl}>
               {session.pageTitle || session.pageUrl}
             </h1>
-            <p className="break-all text-xs text-zinc-500" title={session.pageUrl}>
-              {session.pageUrl}
+            <p className="mt-0.5">
+              <UrlLine url={session.pageUrl} className="text-xs" mono={false} />
             </p>
           </div>
+          <ToolbarButton
+            disabled={reloading || savePercent != null}
+            onClick={() => {
+              if (tabId == null) return;
+              setReloading(true);
+              setSession(null);
+              setPendingPage(null);
+              setStatus("Clearing capture and reloading page…");
+              void refreshCapture(tabId)
+                .then(async (r) => {
+                  if (!r.ok) throw new Error(r.error || "Refresh failed");
+                  if (r.reloaded) await new Promise((x) => setTimeout(x, 1800));
+                  await refresh(tabId);
+                  setStatus("Fresh capture from reloaded page");
+                })
+                .catch((e) => setStatus(e.message))
+                .finally(() => setReloading(false));
+            }}
+          >
+            {reloading ? "Refreshing…" : "Refresh"}
+          </ToolbarButton>
           <ToolbarButton
             onClick={() => {
               if (tabId == null) return;
@@ -261,11 +339,15 @@ function App() {
             <dl className="mt-3 space-y-1 text-xs">
               <div>
                 <dt className="inline font-medium">Tracking: </dt>
-                <dd className="inline break-all">{trackedUrl || session.pageUrl}</dd>
+                <dd className="inline">
+                  <UrlLine url={trackedUrl || session.pageUrl} className="text-xs" mono={false} />
+                </dd>
               </div>
               <div>
                 <dt className="inline font-medium">Browser now: </dt>
-                <dd className="inline break-all">{pendingPage.url}</dd>
+                <dd className="inline">
+                  <UrlLine url={pendingPage.url} className="text-xs" mono={false} />
+                </dd>
               </div>
             </dl>
             <div className="mt-3 flex flex-wrap gap-2">
@@ -341,10 +423,14 @@ function App() {
             danger={danger}
             improve={improve}
             healthy={healthy}
+            view={overviewView}
+            onViewChange={setOverviewView}
             onGoto={(t) => setSection(t)}
           />
         )}
-        {section === "findings" && <FindingsPanel findings={session.findings} />}
+        {section === "findings" && (
+          <FindingsPanel findings={session.findings} view={findingsView} onViewChange={setFindingsView} />
+        )}
         {section === "network" && (
           <NetworkPanel
             rows={network}
@@ -377,11 +463,20 @@ function App() {
   );
 }
 
-function ToolbarButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+function ToolbarButton({
+  children,
+  onClick,
+  disabled,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
-      className="min-h-10 rounded-lg border border-zinc-200 px-3 text-sm dark:border-zinc-700"
+      disabled={disabled}
+      className="min-h-10 rounded-lg border border-zinc-200 px-3 text-sm disabled:opacity-60 dark:border-zinc-700"
       onClick={onClick}
     >
       {children}
@@ -405,38 +500,114 @@ function OverviewPanel({
   danger,
   improve,
   healthy,
+  view,
+  onViewChange,
   onGoto,
 }: {
   session: AutopsySession;
   danger: AdviceCard[];
   improve: AdviceCard[];
   healthy: AdviceCard[];
+  view: InsightView;
+  onViewChange: (v: InsightView) => void;
   onGoto: (t: Tab) => void;
 }) {
+  const brief = buildBrief(session, [...danger, ...improve, ...healthy]);
+  const simple = view === "simple";
+
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-        <p className="text-sm text-zinc-500">Capture snapshot</p>
-        <p className="mt-1 text-lg font-medium">
-          {formatBytes(session.performance.totalTransferBytes)} · {session.performance.requestCount} requests ·{" "}
-          {danger.length} critical issues
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-zinc-500">
+          {simple ? "Plain-language summary" : "Technical metrics and advice"}
         </p>
-        <div className="mt-3 flex flex-wrap gap-2 text-xs">
-          <button type="button" className="text-teal-700 underline" onClick={() => onGoto("findings")}>
-            View findings
-          </button>
-          <button type="button" className="text-teal-700 underline" onClick={() => onGoto("portable")}>
-            Portable APIs ({session.portableApis.length})
-          </button>
-          <button type="button" className="text-teal-700 underline" onClick={() => onGoto("network")}>
-            Network
-          </button>
-        </div>
+        <ViewModeToggle value={view} onChange={onViewChange} />
       </div>
-      <AdviceList title="In danger" items={danger} tone="red" />
-      <AdviceList title="Improve" items={improve} tone="amber" />
-      <AdviceList title="Going well" items={healthy} tone="green" />
+
+      {simple ? (
+        <>
+          <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <p className="text-sm font-semibold text-zinc-500">Story</p>
+            <p className="mt-2 text-base leading-relaxed">{brief.story}</p>
+            <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-300">
+              About {formatBytes(session.performance.totalTransferBytes)} transferred across{" "}
+              {session.performance.requestCount} requests
+              {danger.length ? ` · ${danger.length} issue${danger.length === 1 ? "" : "s"} need attention` : ""}.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+              <button type="button" className="text-teal-700 underline" onClick={() => onGoto("findings")}>
+                See findings
+              </button>
+              <button type="button" className="text-teal-700 underline" onClick={() => onGoto("portable")}>
+                APIs ({session.portableApis.length})
+              </button>
+            </div>
+          </div>
+          <SimpleAdviceList title="Fix these first" items={danger} />
+          <SimpleAdviceList title="Worth improving" items={improve} />
+          <SimpleAdviceList title="Looking good" items={healthy} />
+        </>
+      ) : (
+        <>
+          <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <p className="text-sm text-zinc-500">Capture snapshot</p>
+            <p className="mt-1 text-lg font-medium">
+              {formatBytes(session.performance.totalTransferBytes)} · {session.performance.requestCount} requests ·{" "}
+              {danger.length} critical issues
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+              <TechStat label="TTFB" value={session.performance.ttfbMs != null ? formatMs(session.performance.ttfbMs) : "—"} />
+              <TechStat label="LCP" value={session.performance.lcpMs != null ? formatMs(session.performance.lcpMs) : "—"} />
+              <TechStat label="CLS" value={session.performance.cls != null ? session.performance.cls.toFixed(3) : "—"} />
+              <TechStat label="Failed" value={String(session.performance.failedCount)} />
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+              <button type="button" className="text-teal-700 underline" onClick={() => onGoto("findings")}>
+                View findings
+              </button>
+              <button type="button" className="text-teal-700 underline" onClick={() => onGoto("portable")}>
+                Portable APIs ({session.portableApis.length})
+              </button>
+              <button type="button" className="text-teal-700 underline" onClick={() => onGoto("network")}>
+                Network
+              </button>
+              <button type="button" className="text-teal-700 underline" onClick={() => onGoto("performance")}>
+                Performance
+              </button>
+            </div>
+          </div>
+          <AdviceList title="In danger" items={danger} tone="red" />
+          <AdviceList title="Improve" items={improve} tone="amber" />
+          <AdviceList title="Going well" items={healthy} tone="green" />
+        </>
+      )}
     </div>
+  );
+}
+
+function TechStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-zinc-50 px-2 py-1.5 dark:bg-zinc-800/80">
+      <div className="text-[10px] uppercase tracking-wide text-zinc-500">{label}</div>
+      <div className="font-semibold tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+function SimpleAdviceList({ title, items }: { title: string; items: AdviceCard[] }) {
+  if (!items.length) return null;
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <h2 className="font-semibold">{title}</h2>
+      <ul className="mt-3 space-y-3">
+        {items.map((a) => (
+          <li key={a.id} className="border-t border-zinc-100 pt-3 first:border-0 first:pt-0 dark:border-zinc-800">
+            <p className="break-words font-medium">{a.title}</p>
+            <p className="mt-1 break-words text-sm text-teal-800 dark:text-teal-200">{a.suggestion}</p>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -470,62 +641,112 @@ function AdviceList({
   );
 }
 
-function FindingsPanel({ findings }: { findings: Finding[] }) {
-  if (!findings.length) {
-    return <EmptyState title="No findings yet" body="Browse the page a bit more, then check back." />;
-  }
+function FindingsPanel({
+  findings,
+  view,
+  onViewChange,
+}: {
+  findings: Finding[];
+  view: InsightView;
+  onViewChange: (v: InsightView) => void;
+}) {
+  const simple = view === "simple";
+
   return (
-    <ul className="space-y-3">
-      {findings.map((f) => {
-        const url = typeof f.detail?.url === "string" ? f.detail.url : undefined;
-        const status = f.detail?.status != null ? String(f.detail.status) : undefined;
-        const method = typeof f.detail?.method === "string" ? f.detail.method : undefined;
-        const duration =
-          typeof f.detail?.durationMs === "number" ? formatMs(f.detail.durationMs) : undefined;
-        return (
-          <li
-            key={f.id}
-            className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <Chip tone={f.severity === "critical" || f.severity === "high" ? "red" : "amber"}>{f.severity}</Chip>
-              <Chip>{f.area}</Chip>
-              <Chip tone="zinc">{f.ruleId}</Chip>
-            </div>
-            <h3 className="mt-2 break-words font-medium">{f.plainTitle}</h3>
-            <p className="mt-1 break-words text-sm text-zinc-600 dark:text-zinc-300">{f.title}</p>
-            {(url || status || method || duration) && (
-              <dl className="mt-3 grid gap-1 text-xs text-zinc-500 sm:grid-cols-2">
-                {method && (
-                  <>
-                    <dt className="font-medium text-zinc-700 dark:text-zinc-300">Method</dt>
-                    <dd>{method}</dd>
-                  </>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-zinc-500">
+          {simple ? "What stood out, in plain language" : "Rule IDs, HTTP detail, and evidence"}
+        </p>
+        <ViewModeToggle value={view} onChange={onViewChange} />
+      </div>
+
+      {!findings.length ? (
+        <EmptyState title="No findings yet" body="Browse the page a bit more, then check back." />
+      ) : simple ? (
+        <ul className="space-y-3">
+          {findings.map((f) => (
+            <li
+              key={f.id}
+              className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
+            >
+              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                {f.severity === "critical" || f.severity === "high"
+                  ? "Needs attention"
+                  : f.severity === "medium"
+                    ? "Worth a look"
+                    : "Note"}
+              </p>
+              <h3 className="mt-1 break-words text-base font-medium">{f.plainTitle}</h3>
+              {f.title !== f.plainTitle && (
+                <p className="mt-1 break-words text-sm text-zinc-600 dark:text-zinc-300">{f.title}</p>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <ul className="space-y-3">
+          {findings.map((f) => {
+            const url = typeof f.detail?.url === "string" ? f.detail.url : undefined;
+            const status = f.detail?.status != null ? String(f.detail.status) : undefined;
+            const method = typeof f.detail?.method === "string" ? f.detail.method : undefined;
+            const duration =
+              typeof f.detail?.durationMs === "number" ? formatMs(f.detail.durationMs) : undefined;
+            return (
+              <li
+                key={f.id}
+                className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <Chip tone={f.severity === "critical" || f.severity === "high" ? "red" : "amber"}>
+                    {f.severity}
+                  </Chip>
+                  <Chip>{f.area}</Chip>
+                  <Chip tone="zinc">{f.ruleId}</Chip>
+                </div>
+                <h3 className="mt-2 break-words font-medium">{f.plainTitle}</h3>
+                <p className="mt-1 break-words text-sm text-zinc-600 dark:text-zinc-300">{f.title}</p>
+                {(url || status || method || duration) && (
+                  <dl className="mt-3 grid gap-1 text-xs text-zinc-500 sm:grid-cols-2">
+                    {method && (
+                      <>
+                        <dt className="font-medium text-zinc-700 dark:text-zinc-300">Method</dt>
+                        <dd>{method}</dd>
+                      </>
+                    )}
+                    {status && (
+                      <>
+                        <dt className="font-medium text-zinc-700 dark:text-zinc-300">HTTP status</dt>
+                        <dd>{status}</dd>
+                      </>
+                    )}
+                    {duration && (
+                      <>
+                        <dt className="font-medium text-zinc-700 dark:text-zinc-300">Duration</dt>
+                        <dd>{duration}</dd>
+                      </>
+                    )}
+                    {url && (
+                      <>
+                        <dt className="font-medium text-zinc-700 dark:text-zinc-300 sm:col-span-2">URL</dt>
+                        <dd className="sm:col-span-2">
+                          <UrlLine url={url} className="text-xs" />
+                        </dd>
+                      </>
+                    )}
+                  </dl>
                 )}
-                {status && (
-                  <>
-                    <dt className="font-medium text-zinc-700 dark:text-zinc-300">HTTP status</dt>
-                    <dd>{status}</dd>
-                  </>
+                {f.detail && Object.keys(f.detail).length > 0 && !(url || status || method || duration) && (
+                  <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-zinc-950 p-2 text-[10px] text-zinc-100">
+                    {JSON.stringify(f.detail, null, 2)}
+                  </pre>
                 )}
-                {duration && (
-                  <>
-                    <dt className="font-medium text-zinc-700 dark:text-zinc-300">Duration</dt>
-                    <dd>{duration}</dd>
-                  </>
-                )}
-                {url && (
-                  <>
-                    <dt className="font-medium text-zinc-700 dark:text-zinc-300 sm:col-span-2">URL</dt>
-                    <dd className="break-all font-mono sm:col-span-2">{url}</dd>
-                  </>
-                )}
-              </dl>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -555,7 +776,7 @@ function NetworkPanel({
   return (
     <div className="space-y-3">
       <p className="text-sm text-zinc-500">
-        Showing {rows.length} of {total} requests. Default view focuses on this site’s APIs and hides trackers.
+        Showing {rows.length} of {total} requests. Defaults to all hosts and all types (trackers still hidden unless you uncheck).
       </p>
       <div className="flex flex-wrap gap-2">
         {(
@@ -617,7 +838,17 @@ function NetworkPanel({
                   {r.transferSize != null ? formatBytes(r.transferSize) : "—"}
                 </td>
                 <td className="min-w-0 px-2 py-1 font-mono" title={r.url}>
-                  <span className="block truncate">{shortUrl(r.url, 96)}</span>
+                  <span className="flex min-w-0 items-center gap-1">
+                    <a
+                      href={r.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="min-w-0 truncate text-teal-700 underline-offset-2 hover:underline dark:text-teal-300"
+                    >
+                      {shortUrl(r.url, 96)}
+                    </a>
+                    <CopyButton text={r.url} />
+                  </span>
                 </td>
               </tr>
             ))}
@@ -701,9 +932,10 @@ function PortablePanel({
                 {open ? "Hide details" : "Show details"}
               </button>
             </div>
-            <code className="mt-2 block break-all text-xs text-zinc-500" title={`${a.method} ${a.url}`}>
-              {a.method} {a.url}
-            </code>
+            <div className="mt-2 flex min-w-0 flex-wrap items-start gap-1.5">
+              <span className="shrink-0 font-mono text-xs text-zinc-500">{a.method}</span>
+              <UrlLine url={a.url} className="text-xs" />
+            </div>
             <div className="mt-2 flex flex-wrap gap-3 text-xs text-zinc-500">
               {a.durationMs != null && <span>Duration {formatMs(a.durationMs)}</span>}
               <span className="min-w-0 break-words">
@@ -720,30 +952,19 @@ function PortablePanel({
             {open && (
               <div className="mt-3 space-y-3 border-t border-zinc-100 pt-3 dark:border-zinc-800">
                 {a.headers && Object.keys(a.headers).length > 0 && (
-                  <div className="min-w-0">
-                    <h4 className="text-xs font-semibold uppercase text-zinc-500">Request headers</h4>
-                    <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-zinc-950 p-2 text-[10px] text-zinc-100">
-                      {JSON.stringify(a.headers, null, 2)}
-                    </pre>
-                  </div>
+                  <CodeBlockWithCopy
+                    title="Request headers"
+                    code={JSON.stringify(a.headers, null, 2)}
+                    maxClass="max-h-40"
+                  />
                 )}
                 {a.body && (
-                  <div className="min-w-0">
-                    <h4 className="text-xs font-semibold uppercase text-zinc-500">Body</h4>
-                    <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-zinc-950 p-2 text-[10px] text-zinc-100">
-                      {a.body.slice(0, 4000)}
-                    </pre>
-                  </div>
+                  <CodeBlockWithCopy title="Body" code={a.body.slice(0, 4000)} maxClass="max-h-40" />
                 )}
                 {a.redactedCodegen && (
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {(["curl", "fetch", "python"] as const).map((lang) => (
-                      <div key={lang} className="min-w-0 overflow-hidden">
-                        <h4 className="text-xs font-semibold uppercase text-zinc-500">{lang}</h4>
-                        <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-zinc-950 p-2 text-[10px] text-zinc-100">
-                          {a.redactedCodegen![lang]}
-                        </pre>
-                      </div>
+                      <CodeBlockWithCopy key={lang} title={lang} code={a.redactedCodegen![lang]} />
                     ))}
                   </div>
                 )}
@@ -792,8 +1013,11 @@ function ImagesPanel({ images }: { images: ImageEntry[] }) {
               </div>
             </div>
             <div className="space-y-0.5 p-2">
-              <div className="truncate text-[10px] text-zinc-500" title={img.url}>
-                {shortUrl(img.url, 48)}
+              <div className="flex min-w-0 items-center gap-1">
+                <span className="min-w-0 truncate text-[10px] text-zinc-500" title={img.url}>
+                  {shortUrl(img.url, 48)}
+                </span>
+                <CopyButton text={img.url} />
               </div>
               {img.lazy && <div className="text-[10px] text-zinc-400">lazy</div>}
             </div>
@@ -880,9 +1104,7 @@ function PerformancePanel({ session }: { session: AutopsySession }) {
           <ul className="mt-3 space-y-2 text-sm">
             {p.slowestApis.slice(0, 8).map((a, i) => (
               <li key={i} className="flex min-w-0 justify-between gap-3">
-                <span className="min-w-0 flex-1 truncate font-mono text-xs" title={a.url}>
-                  {shortUrl(a.url)}
-                </span>
+                <UrlLine url={a.url} display={shortUrl(a.url)} className="min-w-0 flex-1 text-xs" />
                 <span className="shrink-0 text-zinc-500">{formatMs(a.durationMs)}</span>
               </li>
             ))}
@@ -896,9 +1118,11 @@ function PerformancePanel({ session }: { session: AutopsySession }) {
           <ul className="mt-3 space-y-2 text-sm">
             {p.largestResources.slice(0, 8).map((a, i) => (
               <li key={i} className="flex min-w-0 justify-between gap-3">
-                <span className="min-w-0 flex-1 truncate font-mono text-xs" title={a.url}>
-                  [{a.type}] {shortUrl(a.url)}
-                </span>
+                <UrlLine
+                  url={a.url}
+                  display={`[${a.type}] ${shortUrl(a.url)}`}
+                  className="min-w-0 flex-1 text-xs"
+                />
                 <span className="shrink-0 text-zinc-500">{formatBytes(a.bytes)}</span>
               </li>
             ))}
@@ -973,8 +1197,13 @@ function PagePanel({ session }: { session: AutopsySession }) {
       <InfoCard title={`Forms (${forms.length})`}>
         {forms.slice(0, 12).map((f, i) => (
           <div key={i} className="border-t border-zinc-100 py-2 text-sm first:border-0 dark:border-zinc-800">
-            <div className="break-all font-medium">
-              {(f.method || "GET").toUpperCase()} {f.action || "(same page)"}
+            <div className="flex flex-wrap items-start gap-1.5 font-medium">
+              <span>{(f.method || "GET").toUpperCase()}</span>
+              {f.action ? (
+                <UrlLine url={f.action} className="text-sm" mono={false} />
+              ) : (
+                <span className="text-zinc-500">(same page)</span>
+              )}
             </div>
             <div className="text-xs text-zinc-500">
               {f.fieldCount} fields
@@ -988,9 +1217,13 @@ function PagePanel({ session }: { session: AutopsySession }) {
       <InfoCard title={`Links (sample ${Math.min(links.length, 30)})`}>
         <ul className="max-h-64 space-y-1 overflow-auto text-xs">
           {links.slice(0, 30).map((l, i) => (
-            <li key={i} className="truncate" title={l.href}>
-              {l.external ? "[ext] " : ""}
-              {l.text || l.href}
+            <li key={i} className="min-w-0">
+              <UrlLine
+                url={l.href}
+                display={`${l.external ? "[ext] " : ""}${l.text || l.href}`}
+                className="text-xs"
+                mono={false}
+              />
             </li>
           ))}
         </ul>
@@ -1089,8 +1322,8 @@ function SecurityPanel({ session }: { session: AutopsySession }) {
             .filter((sc) => sc.src && !sc.firstParty && !sc.hasSri)
             .slice(0, 20)
             .map((sc, i) => (
-              <li key={i} className="truncate font-mono" title={sc.src}>
-                {sc.src}
+              <li key={i} className="min-w-0">
+                {sc.src ? <UrlLine url={sc.src} className="text-xs" /> : null}
               </li>
             ))}
         </ul>
@@ -1113,8 +1346,8 @@ function RuntimePanel({ session }: { session: AutopsySession }) {
         {r.serviceWorkers?.length ? (
           <ul className="space-y-1 text-xs font-mono">
             {r.serviceWorkers.map((u, i) => (
-              <li key={i} className="break-all">
-                {u}
+              <li key={i} className="min-w-0">
+                <UrlLine url={u} className="text-xs" />
               </li>
             ))}
           </ul>
@@ -1126,8 +1359,8 @@ function RuntimePanel({ session }: { session: AutopsySession }) {
         {r.sourceMapUrls?.length ? (
           <ul className="max-h-48 space-y-1 overflow-auto text-xs font-mono">
             {r.sourceMapUrls.map((u, i) => (
-              <li key={i} className="break-all">
-                {u}
+              <li key={i} className="min-w-0">
+                <UrlLine url={u} className="text-xs" />
               </li>
             ))}
           </ul>
@@ -1142,8 +1375,11 @@ function RuntimePanel({ session }: { session: AutopsySession }) {
           {Object.keys(session.storage.local || {})
             .slice(0, 20)
             .map((k) => (
-              <li key={k} className="break-all font-mono" title={k}>
-                local: {k}
+              <li key={k} className="flex min-w-0 items-start gap-1.5 font-mono text-xs">
+                <span className="min-w-0 break-all" title={k}>
+                  local: {k}
+                </span>
+                <CopyButton text={k} />
               </li>
             ))}
         </ul>
@@ -1184,10 +1420,13 @@ function InfoCard({ title, children }: { title: string; children: React.ReactNod
 }
 
 function KV({ label, value }: { label: string; value: string }) {
+  const linkable = /^https?:\/\//i.test(value);
   return (
     <div className="grid gap-0.5 text-sm sm:grid-cols-[7.5rem_1fr] sm:gap-2">
       <dt className="text-xs text-zinc-500 sm:text-sm">{label}</dt>
-      <dd className="min-w-0 break-words text-zinc-800 dark:text-zinc-100">{value}</dd>
+      <dd className="min-w-0 break-words text-zinc-800 dark:text-zinc-100">
+        {linkable ? <UrlLine url={value} className="text-sm" mono={false} /> : value}
+      </dd>
     </div>
   );
 }

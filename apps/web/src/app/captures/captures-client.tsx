@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { HealthPill } from "@/components/health-pill";
+import { UrlLine } from "@/components/url-line";
 import { useExtension } from "@/components/extension-provider";
 import { formatBytes, formatMs } from "@/lib/utils";
 
@@ -93,49 +94,47 @@ export function CapturesClient() {
 
       <ul className="grid gap-3">
         {captures.map((c) => (
-          <li key={c.id}>
-            <Link
-              href={`/captures/${c.id}`}
-              className="block rounded-2xl border border-zinc-200 bg-white p-4 transition hover:border-teal-200 hover:shadow-sm"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2
-                      className="min-w-0 max-w-full truncate text-lg font-semibold"
-                      title={c.summary?.pageTitle || c.title}
-                    >
-                      {c.summary?.pageTitle || c.title}
-                    </h2>
-                    <HealthPill health={c.summary?.health} />
-                  </div>
-                  <p className="mt-1 break-all text-sm font-medium text-zinc-700" title={c.pageUrl}>
-                    {c.pageUrl}
-                  </p>
-                  {(c.summary?.subtitle || c.summary?.storyLine) && (
-                    <p className="mt-1 line-clamp-2 break-words text-sm text-zinc-600">
-                      {c.summary?.subtitle || c.summary?.storyLine}
-                    </p>
-                  )}
-                  <p className="mt-2 break-words text-xs text-zinc-500">
-                    {c.summary?.storyLine && c.summary?.subtitle
-                      ? c.summary.storyLine
-                      : `${formatBytes(c.summary?.pageSizeBytes ?? 0)} · ${formatMs(c.summary?.loadTimeMs)}`}
-                  </p>
-                </div>
-                <div className="shrink-0 text-right text-xs text-zinc-500">
-                  <div>{new Date(c.savedAt).toLocaleString()}</div>
-                  <div className="mt-1">{c.summary?.dangerCount ? `${c.summary.dangerCount} in danger` : "—"}</div>
+          <li
+            key={c.id}
+            className="rounded-2xl border border-zinc-200 bg-white p-4 transition hover:border-teal-200 hover:shadow-sm"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
                   <Link
-                    href={`/origins/${encodeURIComponent(c.origin)}`}
-                    className="mt-2 inline-block text-teal-700 underline-offset-2 hover:underline"
-                    onClick={(e) => e.stopPropagation()}
+                    href={`/captures/${c.id}`}
+                    className="min-w-0 max-w-full truncate text-lg font-semibold hover:text-teal-800"
+                    title={c.summary?.pageTitle || c.title}
                   >
-                    Timeline
+                    {c.summary?.pageTitle || c.title}
                   </Link>
+                  <HealthPill health={c.summary?.health} />
                 </div>
+                <div className="mt-1">
+                  <UrlLine url={c.pageUrl} className="text-sm" mono={false} />
+                </div>
+                {(c.summary?.subtitle || c.summary?.storyLine) && (
+                  <p className="mt-1 line-clamp-2 break-words text-sm text-zinc-600">
+                    {c.summary?.subtitle || c.summary?.storyLine}
+                  </p>
+                )}
+                <p className="mt-2 break-words text-xs text-zinc-500">
+                  {c.summary?.storyLine && c.summary?.subtitle
+                    ? c.summary.storyLine
+                    : `${formatBytes(c.summary?.pageSizeBytes ?? 0)} · ${formatMs(c.summary?.loadTimeMs)}`}
+                </p>
               </div>
-            </Link>
+              <div className="shrink-0 text-right text-xs text-zinc-500">
+                <div>{new Date(c.savedAt).toLocaleString()}</div>
+                <div className="mt-1">{c.summary?.dangerCount ? `${c.summary.dangerCount} in danger` : "—"}</div>
+                <Link
+                  href={`/origins/${encodeURIComponent(c.origin)}`}
+                  className="mt-2 inline-block text-teal-700 underline-offset-2 hover:underline"
+                >
+                  Timeline
+                </Link>
+              </div>
+            </div>
           </li>
         ))}
       </ul>
