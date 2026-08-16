@@ -5,8 +5,9 @@ import Link from "next/link";
 import { HealthPill } from "@/components/health-pill";
 import { CodeBlockWithCopy, CopyButton, UrlLine } from "@/components/url-line";
 import { formatBytes, formatMs } from "@/lib/utils";
-import { Download, FileJson, Printer } from "lucide-react";
+import { Download, FileJson, Printer, Trash2 } from "lucide-react";
 import type { AutopsySession } from "@web-autopsy/core";
+import { useRouter } from "next/navigation";
 
 type Advice = {
   id: string;
@@ -55,6 +56,7 @@ type Tab =
   | "stack";
 
 export function CaptureDetailClient({ id }: { id: string }) {
+  const router = useRouter();
   const [data, setData] = useState<{
     autopsy: {
       title: string;
@@ -81,6 +83,7 @@ export function CaptureDetailClient({ id }: { id: string }) {
   const [netFilter, setNetFilter] = useState<"all" | "api" | "image" | "script">("all");
   const [overviewView, setOverviewView] = useState<"technical" | "simple">("technical");
   const [findingsView, setFindingsView] = useState<"technical" | "simple">("technical");
+  const [deleting, setDeleting] = useState(false);
 
   async function load() {
     const res = await fetch(`/api/autopsies/${id}`);
@@ -101,6 +104,25 @@ export function CaptureDetailClient({ id }: { id: string }) {
     });
     setComment("");
     await load();
+  }
+
+  async function deleteCapture() {
+    if (!data) return;
+    const title = (data.autopsy.summary as { pageTitle?: string })?.pageTitle || data.autopsy.title;
+    if (!window.confirm(`Delete capture “${title}”? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/autopsies/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Delete failed");
+      }
+      router.push("/captures");
+      router.refresh();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Delete failed");
+      setDeleting(false);
+    }
   }
 
   const payload = data?.autopsy.payload;
@@ -215,6 +237,17 @@ export function CaptureDetailClient({ id }: { id: string }) {
           >
             <Printer className="h-4 w-4" /> Print
           </button>
+          {data.role !== "viewer" && (
+            <button
+              type="button"
+              disabled={deleting}
+              onClick={() => void deleteCapture()}
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-red-200 bg-white px-3 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" />
+              {deleting ? "Deleting…" : "Delete"}
+            </button>
+          )}
         </div>
       </div>
 

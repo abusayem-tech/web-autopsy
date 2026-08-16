@@ -28,17 +28,20 @@ type Capture = {
 export function CapturesClient() {
   const { status: extensionStatus } = useExtension();
   const [captures, setCaptures] = useState<Capture[]>([]);
+  const [role, setRole] = useState<string>("");
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void (async () => {
       setLoading(true);
       const res = await fetch(`/api/autopsies?q=${encodeURIComponent(q)}`);
       const data = await res.json();
       if (!cancelled) {
         setCaptures(data.captures ?? []);
+        setRole(data.role ?? "");
         setLoading(false);
       }
     })();
@@ -46,6 +49,25 @@ export function CapturesClient() {
       cancelled = true;
     };
   }, [q]);
+
+  async function deleteCapture(id: string, title: string) {
+    if (!window.confirm(`Delete capture “${title}”? This cannot be undone.`)) return;
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/autopsies/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Delete failed");
+      }
+      setCaptures((prev) => prev.filter((c) => c.id !== id));
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  const canDelete = Boolean(role && role !== "viewer");
 
   const extensionHint =
     extensionStatus === "connected"
@@ -124,15 +146,27 @@ export function CapturesClient() {
                     : `${formatBytes(c.summary?.pageSizeBytes ?? 0)} · ${formatMs(c.summary?.loadTimeMs)}`}
                 </p>
               </div>
-              <div className="shrink-0 text-right text-xs text-zinc-500">
+              <div className="flex shrink-0 flex-col items-end gap-2 text-right text-xs text-zinc-500">
                 <div>{new Date(c.savedAt).toLocaleString()}</div>
-                <div className="mt-1">{c.summary?.dangerCount ? `${c.summary.dangerCount} in danger` : "—"}</div>
-                <Link
-                  href={`/origins/${encodeURIComponent(c.origin)}`}
-                  className="mt-2 inline-block text-teal-700 underline-offset-2 hover:underline"
-                >
-                  Timeline
-                </Link>
+                <div>{c.summary?.dangerCount ? `${c.summary.dangerCount} in danger` : "—"}</div>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Link
+                    href={`/origins/${encodeURIComponent(c.origin)}`}
+                    className="text-teal-700 underline-offset-2 hover:underline"
+                  >
+                    Timeline
+                  </Link>
+                  {canDelete && (
+                    <button
+                      type="button"
+                      disabled={deletingId === c.id}
+                      onClick={() => void deleteCapture(c.id, c.summary?.pageTitle || c.title)}
+                      className="rounded-lg px-2 py-1 font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                    >
+                      {deletingId === c.id ? "Deleting…" : "Delete"}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </li>

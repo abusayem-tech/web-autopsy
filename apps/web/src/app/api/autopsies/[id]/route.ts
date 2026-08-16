@@ -167,3 +167,31 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   return NextResponse.json({ comment: c });
 }
+
+export async function DELETE(req: NextRequest, { params }: Params) {
+  const session = await requireSession(req);
+  if (!session?.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const ws = await getUserWorkspace(session.user.id);
+  if (!ws) return NextResponse.json({ error: "no workspace" }, { status: 400 });
+  if (ws.role === "viewer") return NextResponse.json({ error: "forbidden" }, { status: 403 });
+
+  const { id } = await params;
+  const [row] = await db
+    .select({ id: autopsies.id })
+    .from(autopsies)
+    .where(and(eq(autopsies.id, id), eq(autopsies.workspaceId, ws.workspace.id)))
+    .limit(1);
+  if (!row) return NextResponse.json({ error: "not found" }, { status: 404 });
+
+  // Child rows cascade via FK; activity.autopsy_id is set null.
+  await db.delete(autopsies).where(eq(autopsies.id, id));
+
+  await db.insert(activity).values({
+    workspaceId: ws.workspace.id,
+    userId: session.user.id,
+    verb: "deleted",
+    autopsyId: null,
+  });
+
+  return NextResponse.json({ ok: true, id });
+}
