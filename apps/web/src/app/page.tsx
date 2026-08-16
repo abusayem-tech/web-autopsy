@@ -50,7 +50,11 @@ export default function HomePage() {
             what is in danger and what to improve.
           </p>
           <p className="mt-3 text-sm text-zinc-500">
-            Unsaved browsing never leaves your machine.
+            Unsaved browsing never leaves your machine.{" "}
+            <a href="/extension" className="font-medium text-teal-700 hover:underline">
+              Download the Chrome extension
+            </a>
+            .
           </p>
         </div>
 

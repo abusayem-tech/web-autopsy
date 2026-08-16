@@ -38,21 +38,18 @@ Load the unpacked extension from `apps/extension/.output/chrome-mv3`.
 
 Also available at `https://web-autopsy-abusayem.vercel.app`.
 
-### Extension (unpacked)
+### Extension (from the website)
 
-1. `pnpm --filter extension build`
-2. Chrome → `chrome://extensions` → Developer mode → Load unpacked → `apps/extension/.output/chrome-mv3`
-3. Sign up on the production site → **Settings** → create an extension API token
-4. Extension **Options** → API base URL `https://web-autopsy.vercel.app` + paste the token
-5. Browse a site → open the inspector → **Save** (unsaved captures stay local)
+1. Open **https://web-autopsy.vercel.app/extension**
+2. Click **Download & install**, unzip, then Chrome → `chrome://extensions` → Developer mode → **Load unpacked**
+3. Sign up → **Settings** → create an API token
+4. Extension **Options** → API base URL is prefilled; paste the token
+5. Browse a site → open the inspector → **Save**
 
-### Teammates
+### Extension (local build)
 
-Invite from **Team** on the web app (owner/member/viewer). Viewers get Story view; Technical toggle for engineers.
-
-### Deploy
-
-1. Push to GitHub (`main`) — Vercel auto-deploys
-2. Env on Vercel: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `NEXT_PUBLIC_APP_URL` (optional Google OAuth + AI Gateway)
+1. `pnpm package:extension` (or `pnpm --filter extension build`)
+2. Chrome → Load unpacked → `apps/extension/.output/chrome-mv3`
+3. Same token flow as above
 
 Unsaved browsing never leaves the browser. Secrets are redacted by default.

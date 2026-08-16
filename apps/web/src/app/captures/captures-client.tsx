@@ -65,12 +65,20 @@ export function CapturesClient() {
             Install the Chrome extension, create an API token in Settings, browse a site, then click Save. Your team will
             see a Story briefing here.
           </p>
-          <Link
-            href="/settings"
-            className="mt-5 inline-flex min-h-11 items-center rounded-xl bg-teal-600 px-4 text-sm font-semibold text-white"
-          >
-            Create extension token
-          </Link>
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+            <Link
+              href="/extension"
+              className="inline-flex min-h-11 items-center rounded-xl bg-teal-600 px-4 text-sm font-semibold text-white"
+            >
+              Download extension
+            </Link>
+            <Link
+              href="/settings"
+              className="inline-flex min-h-11 items-center rounded-xl border border-zinc-300 px-4 text-sm font-semibold text-zinc-800"
+            >
+              Create API token
+            </Link>
+          </div>
         </div>
       )}
 

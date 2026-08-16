@@ -9,7 +9,7 @@ function Options() {
 
   useEffect(() => {
     void chrome.storage.sync.get(["apiBaseUrl", "apiToken"]).then((d) => {
-      setApiBaseUrl(d.apiBaseUrl || "");
+      setApiBaseUrl(d.apiBaseUrl || "https://web-autopsy.vercel.app");
       setApiToken(d.apiToken || "");
     });
   }, []);

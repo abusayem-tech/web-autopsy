@@ -2,5 +2,5 @@
   "framework": "nextjs",
   "regions": ["bom1"],
   "installCommand": "cd ../.. && pnpm install --no-frozen-lockfile",
-  "buildCommand": "cd ../.. && pnpm --filter @web-autopsy/core build && pnpm --filter web build"
+  "buildCommand": "cd ../.. && pnpm --filter @web-autopsy/core build && node scripts/package-extension.mjs && pnpm --filter web build"
 }
