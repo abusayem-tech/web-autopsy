@@ -44,7 +44,7 @@ export function OriginClient({ origin }: { origin: string }) {
         <Link href="/captures" className="text-sm text-zinc-500">
           ← Captures
         </Link>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">{origin}</h1>
+        <h1 className="mt-2 break-all text-xl font-semibold tracking-tight sm:text-2xl lg:text-3xl">{origin}</h1>
         <p className="mt-1 text-zinc-600">Timeline of saves — spot regressions in size, LCP, and danger count.</p>
       </div>
       <ol className="space-y-3">
@@ -61,7 +61,11 @@ export function OriginClient({ origin }: { origin: string }) {
           return (
             <li key={c.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <Link href={`/captures/${c.id}`} className="font-semibold hover:text-teal-700">
+                <Link
+                  href={`/captures/${c.id}`}
+                  className="min-w-0 break-words font-semibold hover:text-teal-700"
+                  title={c.title}
+                >
                   {c.title}
                 </Link>
                 <HealthPill health={c.summary.health} />

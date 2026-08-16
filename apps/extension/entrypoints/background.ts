@@ -1,5 +1,6 @@
 import type { AutopsySession, NetworkEntry, ResourceType } from "@web-autopsy/core";
 import {
+  attachImageBytes,
   buildPerfSnapshot,
   detectStack,
   detectTrackers,
@@ -241,8 +242,16 @@ export default defineBackground(() => {
       entry.status = details.statusCode;
       entry.responseHeaders = headersToObject(details.responseHeaders);
       entry.durationMs = Math.max(0, details.timeStamp - entry.timestamp);
-      const len = entry.responseHeaders?.["content-length"] || entry.responseHeaders?.["Content-Length"];
+      const len =
+        entry.responseHeaders?.["content-length"] || entry.responseHeaders?.["Content-Length"];
       if (len) entry.transferSize = Number(len) || undefined;
+      // content-range: bytes 0-1023/12345
+      if (entry.transferSize == null) {
+        const cr =
+          entry.responseHeaders?.["content-range"] || entry.responseHeaders?.["Content-Range"];
+        const m = cr?.match(/\/(\d+)\s*$/);
+        if (m) entry.transferSize = Number(m[1]) || undefined;
+      }
 
       if (entry.resourceType === "document" && entry.responseHeaders) {
         const h = Object.fromEntries(
@@ -351,7 +360,19 @@ export default defineBackground(() => {
             return sendResponse({ ok: true, held: true });
           }
           const snap = message.snapshot as Partial<AutopsySession>;
-          if (snap.images) state.session.images = snap.images;
+          if (snap.images) {
+            const prevBytes = new Map(
+              state.session.images
+                .filter((i) => i.bytes != null && i.bytes > 0)
+                .map((i) => [i.url, i.bytes!] as const),
+            );
+            state.session.images = snap.images.map((img) => ({
+              ...img,
+              bytes: img.bytes && img.bytes > 0 ? img.bytes : prevBytes.get(img.url) ?? img.bytes,
+            }));
+            state.session = attachImageBytes(state.session);
+            void fillMissingImageBytes(sender.tab.id);
+          }
           if (snap.scripts) state.session.scripts = snap.scripts;
           if (snap.links) state.session.links = snap.links;
           if (snap.forms) state.session.forms = snap.forms;
@@ -565,6 +586,84 @@ function refreshDerived(state: TabState) {
     headers: state.session.security.headers,
     scriptSrcs: state.session.scripts.map((s) => s.src || "").filter(Boolean),
   });
+  state.session = attachImageBytes(state.session);
+}
+
+const imageSizeInFlight = new Set<string>();
+
+/** Resolve missing image byte sizes via HEAD / Range (extension has host access). */
+async function fillMissingImageBytes(tabId: number) {
+  const state = tabs.get(tabId);
+  if (!state || state.holdCapture) return;
+
+  state.session = attachImageBytes(state.session);
+
+  const missing = state.session.images.filter(
+    (img) => (!img.bytes || img.bytes <= 0) && /^https?:/i.test(img.url),
+  );
+  for (const img of missing.slice(0, 40)) {
+    const key = `${tabId}:${img.url}`;
+    if (imageSizeInFlight.has(key)) continue;
+    imageSizeInFlight.add(key);
+    try {
+      const size = await probeImageBytes(img.url);
+      if (size != null && size > 0) {
+        const current = tabs.get(tabId);
+        if (!current) continue;
+        current.session.images = current.session.images.map((i) =>
+          i.url === img.url && !(i.bytes && i.bytes > 0) ? { ...i, bytes: size } : i,
+        );
+        // Also stamp matching network requests for later attachImageBytes.
+        for (const r of current.session.requests) {
+          if (
+            (r.resourceType === "image" || r.resourceType === "other") &&
+            (!r.transferSize || r.transferSize <= 0) &&
+            (r.url === img.url || urlKeyLoose(r.url) === urlKeyLoose(img.url))
+          ) {
+            r.transferSize = size;
+          }
+        }
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      imageSizeInFlight.delete(key);
+    }
+  }
+}
+
+function urlKeyLoose(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.hostname}${u.pathname}`.toLowerCase();
+  } catch {
+    return url.split("?")[0].toLowerCase();
+  }
+}
+
+async function probeImageBytes(url: string): Promise<number | undefined> {
+  try {
+    const head = await fetch(url, { method: "HEAD", redirect: "follow" });
+    const len = head.headers.get("content-length");
+    if (len && Number(len) > 0) return Number(len);
+  } catch {
+    /* try range next */
+  }
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: { Range: "bytes=0-0" },
+      redirect: "follow",
+    });
+    const cr = res.headers.get("content-range");
+    const m = cr?.match(/\/(\d+)\s*$/);
+    if (m && Number(m[1]) > 0) return Number(m[1]);
+    const len = res.headers.get("content-length");
+    if (len && Number(len) > 0) return Number(len);
+  } catch {
+    /* ignore */
+  }
+  return undefined;
 }
 
 async function fetchWellKnown(tabId: number, pageUrl: string) {

@@ -58,6 +58,8 @@ export async function POST(req: NextRequest) {
       return handleMeta(authz.token.workspaceId, authz.token.userId, body);
     case "session":
       return handleSession(authz.token.workspaceId, body);
+    case "session_patch":
+      return handleSessionPatch(authz.token.workspaceId, body);
     case "findings":
       return handleFindings(authz.token.workspaceId, body);
     case "portable":
@@ -200,6 +202,49 @@ async function handleSession(
   return NextResponse.json({ id: body.id, step: "session", progress: 40 });
 }
 
+async function handleSessionPatch(
+  workspaceId: string,
+  body: { id: string; patch: Partial<AutopsySession>; appendRequests?: boolean },
+) {
+  if (!body.id || !body.patch) {
+    return NextResponse.json({ error: "missing fields" }, { status: 400 });
+  }
+  const owned = await assertOwns(body.id, workspaceId);
+  if (!owned) return NextResponse.json({ error: "not found" }, { status: 404 });
+
+  const [row] = await db.select({ payload: autopsies.payload }).from(autopsies).where(eq(autopsies.id, body.id)).limit(1);
+  const existing = (row?.payload || {}) as AutopsySession;
+  const patch = { ...body.patch };
+  delete (patch as { htmlSnapshot?: unknown }).htmlSnapshot;
+  delete (patch as { screenshotDataUrl?: unknown }).screenshotDataUrl;
+
+  if (patch.images) {
+    patch.images = patch.images.filter((img) => {
+      try {
+        const u = new URL(img.url);
+        return u.protocol === "http:" || u.protocol === "https:";
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  let next: AutopsySession = { ...existing, ...patch };
+  if (body.appendRequests && Array.isArray(body.patch.requests)) {
+    next = {
+      ...next,
+      requests: [...(existing.requests || []), ...body.patch.requests],
+    };
+  }
+
+  await db
+    .update(autopsies)
+    .set({ payload: next, screenshotPng: null })
+    .where(eq(autopsies.id, body.id));
+
+  return NextResponse.json({ id: body.id, step: "session_patch", progress: 50 });
+}
+
 async function handleFindings(
   workspaceId: string,
   body: { id: string; findings: Finding[] },
@@ -329,9 +374,18 @@ async function handleFinish(
     ...(row.summary as Record<string, unknown>),
     health: brief.health,
   };
+  const prevPayload = (row.payload || {}) as AutopsySession;
+  const mergedPayload: AutopsySession = {
+    ...prevPayload,
+    findings: body.findings ?? prevPayload.findings ?? [],
+    advice: body.advice ?? prevPayload.advice ?? [],
+    portableApis: body.portableApis ?? prevPayload.portableApis ?? [],
+    htmlSnapshot: undefined,
+    screenshotDataUrl: undefined,
+  };
   await db
     .update(autopsies)
-    .set({ summary, screenshotPng: null, savedAt: new Date() })
+    .set({ summary, payload: mergedPayload, screenshotPng: null, savedAt: new Date() })
     .where(eq(autopsies.id, body.id));
 
   await db.insert(activity).values({

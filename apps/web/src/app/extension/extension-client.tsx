@@ -113,7 +113,8 @@ export function ExtensionClient() {
           <div className="space-y-4">
             <Row icon={<Check className="h-5 w-5 text-teal-700" />} title="Connected" />
             <p className="text-sm text-zinc-600">
-              Linked to <code className="rounded bg-zinc-100 px-1">{ping?.apiBaseUrl || "this site"}</code>
+              Linked to{" "}
+              <code className="break-all rounded bg-zinc-100 px-1">{ping?.apiBaseUrl || "this site"}</code>
               {ping?.version ? ` · extension v${ping.version}` : ""}
               {latest?.version ? ` · latest v${latest.version}` : ""}.
             </p>

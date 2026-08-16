@@ -163,32 +163,40 @@ function App() {
   const imagesSorted = [...session.images].sort((a, b) => (b.bytes ?? 0) - (a.bytes ?? 0));
 
   return (
-    <div className="flex min-h-screen bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
-      <aside className="hidden w-56 shrink-0 border-r border-zinc-200 bg-white p-3 md:block dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="mb-1 px-2 text-sm font-semibold">Web Autopsy</div>
-        <div className="mb-4 truncate px-2 text-[10px] text-zinc-400">v{chrome.runtime.getManifest().version}</div>
-        <nav className="space-y-1">
-          {sections.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setSection(s.id)}
-              className={`flex min-h-10 w-full items-center rounded-lg px-2 text-left text-sm ${
-                section === s.id
-                  ? "bg-teal-50 text-teal-900 dark:bg-teal-950 dark:text-teal-100"
-                  : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
-              }`}
-            >
-              {s.label}
-            </button>
-          ))}
-        </nav>
-      </aside>
-      <main className="flex-1 p-4 md:p-6">
+    <div className="min-h-screen min-w-0 overflow-x-clip bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
+      <div className="mx-auto flex min-h-screen w-full min-w-0 max-w-6xl">
+        <aside className="sticky top-0 hidden max-h-dvh w-48 shrink-0 overflow-y-auto border-r border-zinc-200 bg-white p-3 lg:block dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="mb-1 px-2 text-sm font-semibold">Web Autopsy</div>
+          <div className="mb-4 truncate px-2 text-[10px] text-zinc-400">
+            v{chrome.runtime.getManifest().version}
+          </div>
+          <nav className="space-y-1">
+            {sections.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setSection(s.id)}
+                className={`flex min-h-9 w-full items-center rounded-lg px-2 text-left text-sm ${
+                  section === s.id
+                    ? "bg-teal-50 text-teal-900 dark:bg-teal-950 dark:text-teal-100"
+                    : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </nav>
+        </aside>
+        <main className="min-w-0 flex-1 overflow-x-clip px-3 py-4 sm:px-4 lg:px-6">
+          <div className="mx-auto w-full min-w-0 max-w-3xl xl:max-w-4xl">
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <div className="mr-auto min-w-0">
-            <h1 className="truncate text-xl font-semibold">{session.pageTitle || session.pageUrl}</h1>
-            <p className="truncate text-xs text-zinc-500">{session.pageUrl}</p>
+          <div className="mr-auto min-w-0 max-w-full basis-full sm:basis-auto sm:max-w-[min(100%,28rem)]">
+            <h1 className="break-words text-lg font-semibold sm:truncate sm:text-xl" title={session.pageTitle || session.pageUrl}>
+              {session.pageTitle || session.pageUrl}
+            </h1>
+            <p className="break-all text-xs text-zinc-500" title={session.pageUrl}>
+              {session.pageUrl}
+            </p>
           </div>
           <ToolbarButton
             onClick={() => {
@@ -294,10 +302,12 @@ function App() {
           </div>
         )}
         {savePercent != null && (
-          <div className="mb-3">
-            <div className="mb-1 flex justify-between text-xs text-zinc-500">
-              <span>{status || "Uploading…"}</span>
-              <span>{savePercent}%</span>
+          <div className="mb-3 min-w-0">
+            <div className="mb-1 flex justify-between gap-2 text-xs text-zinc-500">
+              <span className="min-w-0 flex-1 break-words" title={status || undefined}>
+                {status || "Uploading…"}
+              </span>
+              <span className="shrink-0">{savePercent}%</span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
               <div
@@ -307,14 +317,16 @@ function App() {
             </div>
           </div>
         )}
-        {status && savePercent == null && <p className="mb-3 text-sm text-teal-700 dark:text-teal-300">{status}</p>}
-        <div className="mb-4 flex gap-2 overflow-x-auto md:hidden">
+        {status && savePercent == null && (
+          <p className="mb-3 break-words text-sm text-teal-700 dark:text-teal-300">{status}</p>
+        )}
+        <div className="mb-4 flex gap-2 overflow-x-auto pb-1 lg:hidden">
           {sections.map((s) => (
             <button
               key={s.id}
               type="button"
               onClick={() => setSection(s.id)}
-              className={`min-h-10 shrink-0 rounded-lg px-3 text-sm ${
+              className={`min-h-9 shrink-0 rounded-lg px-3 text-sm ${
                 section === s.id ? "bg-teal-600 text-white" : "bg-white dark:bg-zinc-900"
               }`}
             >
@@ -358,7 +370,9 @@ function App() {
         {section === "security" && <SecurityPanel session={session} />}
         {section === "runtime" && <RuntimePanel session={session} />}
         {section === "stack" && <StackPanel session={session} />}
-      </main>
+          </div>
+        </main>
+      </div>
     </div>
   );
 }
@@ -445,10 +459,10 @@ function AdviceList({
             <div className="flex flex-wrap items-center gap-2">
               <Chip tone={tone}>{a.severity}</Chip>
               <Chip>{a.area}</Chip>
-              <span className="font-medium text-sm">{a.title}</span>
+              <span className="min-w-0 break-words text-sm font-medium">{a.title}</span>
             </div>
-            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">{a.whyItMatters}</p>
-            <p className="mt-1 text-sm text-teal-800 dark:text-teal-200">→ {a.suggestion}</p>
+            <p className="mt-1 break-words text-sm text-zinc-600 dark:text-zinc-300">{a.whyItMatters}</p>
+            <p className="mt-1 break-words text-sm text-teal-800 dark:text-teal-200">→ {a.suggestion}</p>
           </li>
         ))}
       </ul>
@@ -478,8 +492,8 @@ function FindingsPanel({ findings }: { findings: Finding[] }) {
               <Chip>{f.area}</Chip>
               <Chip tone="zinc">{f.ruleId}</Chip>
             </div>
-            <h3 className="mt-2 font-medium">{f.plainTitle}</h3>
-            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">{f.title}</p>
+            <h3 className="mt-2 break-words font-medium">{f.plainTitle}</h3>
+            <p className="mt-1 break-words text-sm text-zinc-600 dark:text-zinc-300">{f.title}</p>
             {(url || status || method || duration) && (
               <dl className="mt-3 grid gap-1 text-xs text-zinc-500 sm:grid-cols-2">
                 {method && (
@@ -502,8 +516,8 @@ function FindingsPanel({ findings }: { findings: Finding[] }) {
                 )}
                 {url && (
                   <>
-                    <dt className="font-medium text-zinc-700 dark:text-zinc-300">URL</dt>
-                    <dd className="break-all font-mono">{url}</dd>
+                    <dt className="font-medium text-zinc-700 dark:text-zinc-300 sm:col-span-2">URL</dt>
+                    <dd className="break-all font-mono sm:col-span-2">{url}</dd>
                   </>
                 )}
               </dl>
@@ -579,15 +593,15 @@ function NetworkPanel({
         </label>
       </div>
       <div className="overflow-auto rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <table className="min-w-full text-left text-xs">
+        <table className="w-full table-fixed text-left text-xs">
           <thead className="bg-zinc-50 dark:bg-zinc-800">
             <tr>
-              <th className="px-2 py-2">Status</th>
-              <th className="px-2 py-2">Method</th>
-              <th className="px-2 py-2">Type</th>
-              <th className="px-2 py-2">Party</th>
-              <th className="px-2 py-2">ms</th>
-              <th className="px-2 py-2">Size</th>
+              <th className="w-12 px-2 py-2">Status</th>
+              <th className="w-14 px-2 py-2">Method</th>
+              <th className="hidden w-16 px-2 py-2 sm:table-cell">Type</th>
+              <th className="hidden w-12 px-2 py-2 sm:table-cell">Party</th>
+              <th className="w-12 px-2 py-2">ms</th>
+              <th className="hidden w-14 px-2 py-2 md:table-cell">Size</th>
               <th className="px-2 py-2">URL</th>
             </tr>
           </thead>
@@ -596,12 +610,14 @@ function NetworkPanel({
               <tr key={r.id} className="border-t border-zinc-100 dark:border-zinc-800">
                 <td className="px-2 py-1">{r.status ?? (r.failed ? "ERR" : "—")}</td>
                 <td className="px-2 py-1">{r.method}</td>
-                <td className="px-2 py-1">{r.resourceType}</td>
-                <td className="px-2 py-1">{r.firstParty ? "1st" : "3rd"}</td>
+                <td className="hidden px-2 py-1 sm:table-cell">{r.resourceType}</td>
+                <td className="hidden px-2 py-1 sm:table-cell">{r.firstParty ? "1st" : "3rd"}</td>
                 <td className="px-2 py-1">{r.durationMs?.toFixed(0) ?? "—"}</td>
-                <td className="px-2 py-1">{r.transferSize != null ? formatBytes(r.transferSize) : "—"}</td>
-                <td className="max-w-xl truncate px-2 py-1 font-mono" title={r.url}>
-                  {shortUrl(r.url, 96)}
+                <td className="hidden px-2 py-1 md:table-cell">
+                  {r.transferSize != null ? formatBytes(r.transferSize) : "—"}
+                </td>
+                <td className="min-w-0 px-2 py-1 font-mono" title={r.url}>
+                  <span className="block truncate">{shortUrl(r.url, 96)}</span>
                 </td>
               </tr>
             ))}
@@ -668,29 +684,29 @@ function PortablePanel({
             className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
           >
             <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
+              <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="font-semibold">{a.humanName}</h3>
+                  <h3 className="min-w-0 break-words font-semibold">{a.humanName}</h3>
                   <Chip tone="teal">{a.replayClass}</Chip>
                   {a.authType && <Chip tone="amber">{a.authType}</Chip>}
                   {a.status != null && <Chip tone={a.status >= 400 ? "red" : "green"}>{a.status}</Chip>}
                 </div>
-                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">{a.purpose}</p>
+                <p className="mt-1 break-words text-sm text-zinc-600 dark:text-zinc-300">{a.purpose}</p>
               </div>
               <button
                 type="button"
-                className="text-xs text-teal-700 underline"
+                className="shrink-0 text-xs text-teal-700 underline"
                 onClick={() => setOpenId(open ? null : a.id)}
               >
                 {open ? "Hide details" : "Show details"}
               </button>
             </div>
-            <code className="mt-2 block truncate text-xs text-zinc-500">
+            <code className="mt-2 block break-all text-xs text-zinc-500" title={`${a.method} ${a.url}`}>
               {a.method} {a.url}
             </code>
             <div className="mt-2 flex flex-wrap gap-3 text-xs text-zinc-500">
               {a.durationMs != null && <span>Duration {formatMs(a.durationMs)}</span>}
-              <span>
+              <span className="min-w-0 break-words">
                 Replay:{" "}
                 {a.replayClass === "portable-public"
                   ? "callable without browser cookies"
@@ -704,27 +720,27 @@ function PortablePanel({
             {open && (
               <div className="mt-3 space-y-3 border-t border-zinc-100 pt-3 dark:border-zinc-800">
                 {a.headers && Object.keys(a.headers).length > 0 && (
-                  <div>
+                  <div className="min-w-0">
                     <h4 className="text-xs font-semibold uppercase text-zinc-500">Request headers</h4>
-                    <pre className="mt-1 max-h-40 overflow-auto rounded-lg bg-zinc-950 p-2 text-[10px] text-zinc-100">
+                    <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-zinc-950 p-2 text-[10px] text-zinc-100">
                       {JSON.stringify(a.headers, null, 2)}
                     </pre>
                   </div>
                 )}
                 {a.body && (
-                  <div>
+                  <div className="min-w-0">
                     <h4 className="text-xs font-semibold uppercase text-zinc-500">Body</h4>
-                    <pre className="mt-1 max-h-40 overflow-auto rounded-lg bg-zinc-950 p-2 text-[10px] text-zinc-100">
+                    <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-zinc-950 p-2 text-[10px] text-zinc-100">
                       {a.body.slice(0, 4000)}
                     </pre>
                   </div>
                 )}
                 {a.redactedCodegen && (
-                  <div className="grid gap-2 md:grid-cols-3">
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {(["curl", "fetch", "python"] as const).map((lang) => (
-                      <div key={lang}>
+                      <div key={lang} className="min-w-0 overflow-hidden">
                         <h4 className="text-xs font-semibold uppercase text-zinc-500">{lang}</h4>
-                        <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-zinc-950 p-2 text-[10px] text-zinc-100">
+                        <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-zinc-950 p-2 text-[10px] text-zinc-100">
                           {a.redactedCodegen![lang]}
                         </pre>
                       </div>
@@ -751,7 +767,7 @@ function ImagesPanel({ images }: { images: ImageEntry[] }) {
         {images.length} images · known transfer size {formatBytes(total)} (sorted largest first). Use this to spot
         storage / bandwidth hogs.
       </p>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {images.map((img, i) => (
           <a
             key={`${img.url}-${i}`}
@@ -764,7 +780,9 @@ function ImagesPanel({ images }: { images: ImageEntry[] }) {
               <img src={img.url} alt={img.alt || ""} className="h-full w-full object-cover" />
               <div className="absolute bottom-1 left-1 right-1 flex flex-wrap gap-1">
                 <Chip tone={img.broken ? "red" : "teal"}>
-                  {img.bytes != null ? formatBytes(img.bytes) : "size unknown"}
+                  {img.bytes != null && img.bytes > 0
+                    ? formatBytes(img.bytes)
+                    : "measuring…"}
                 </Chip>
                 {(img.naturalWidth || img.width) && (
                   <Chip>
@@ -843,7 +861,7 @@ function PerformancePanel({ session }: { session: AutopsySession }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {cards.map((c) => (
           <div
             key={c.label}
@@ -861,8 +879,10 @@ function PerformancePanel({ session }: { session: AutopsySession }) {
           <p className="mt-1 text-xs text-zinc-500">Calls that kept the UI waiting the longest.</p>
           <ul className="mt-3 space-y-2 text-sm">
             {p.slowestApis.slice(0, 8).map((a, i) => (
-              <li key={i} className="flex justify-between gap-3">
-                <span className="truncate font-mono text-xs">{shortUrl(a.url)}</span>
+              <li key={i} className="flex min-w-0 justify-between gap-3">
+                <span className="min-w-0 flex-1 truncate font-mono text-xs" title={a.url}>
+                  {shortUrl(a.url)}
+                </span>
                 <span className="shrink-0 text-zinc-500">{formatMs(a.durationMs)}</span>
               </li>
             ))}
@@ -875,8 +895,8 @@ function PerformancePanel({ session }: { session: AutopsySession }) {
           <p className="mt-1 text-xs text-zinc-500">Heaviest downloads — prime candidates to compress or defer.</p>
           <ul className="mt-3 space-y-2 text-sm">
             {p.largestResources.slice(0, 8).map((a, i) => (
-              <li key={i} className="flex justify-between gap-3">
-                <span className="truncate font-mono text-xs">
+              <li key={i} className="flex min-w-0 justify-between gap-3">
+                <span className="min-w-0 flex-1 truncate font-mono text-xs" title={a.url}>
                   [{a.type}] {shortUrl(a.url)}
                 </span>
                 <span className="shrink-0 text-zinc-500">{formatBytes(a.bytes)}</span>
@@ -888,15 +908,15 @@ function PerformancePanel({ session }: { session: AutopsySession }) {
       {(p.lcpElement || p.clsElement) && (
         <section className="rounded-xl border border-zinc-200 bg-white p-4 text-sm dark:border-zinc-800 dark:bg-zinc-900">
           {p.lcpElement && (
-            <p>
+            <p className="min-w-0">
               <span className="font-medium">LCP element:</span>{" "}
-              <code className="text-xs">{p.lcpElement}</code>
+              <code className="break-all text-xs">{p.lcpElement}</code>
             </p>
           )}
           {p.clsElement && (
-            <p className="mt-2">
+            <p className="mt-2 min-w-0">
               <span className="font-medium">CLS source:</span>{" "}
-              <code className="text-xs">{p.clsElement}</code>
+              <code className="break-all text-xs">{p.clsElement}</code>
             </p>
           )}
         </section>
@@ -922,7 +942,7 @@ function ConsolePanel({ session }: { session: AutopsySession }) {
           </div>
           <p className="mt-2 whitespace-pre-wrap break-words">{c.message}</p>
           {c.stack && (
-            <pre className="mt-2 max-h-32 overflow-auto rounded-lg bg-zinc-950 p-2 text-[10px] text-zinc-300">
+            <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-zinc-950 p-2 text-[10px] text-zinc-300">
               {c.stack}
             </pre>
           )}
@@ -953,7 +973,7 @@ function PagePanel({ session }: { session: AutopsySession }) {
       <InfoCard title={`Forms (${forms.length})`}>
         {forms.slice(0, 12).map((f, i) => (
           <div key={i} className="border-t border-zinc-100 py-2 text-sm first:border-0 dark:border-zinc-800">
-            <div className="font-medium">
+            <div className="break-all font-medium">
               {(f.method || "GET").toUpperCase()} {f.action || "(same page)"}
             </div>
             <div className="text-xs text-zinc-500">
@@ -968,7 +988,7 @@ function PagePanel({ session }: { session: AutopsySession }) {
       <InfoCard title={`Links (sample ${Math.min(links.length, 30)})`}>
         <ul className="max-h-64 space-y-1 overflow-auto text-xs">
           {links.slice(0, 30).map((l, i) => (
-            <li key={i} className="truncate">
+            <li key={i} className="truncate" title={l.href}>
               {l.external ? "[ext] " : ""}
               {l.text || l.href}
             </li>
@@ -988,8 +1008,8 @@ function PrivacyPanel({ session }: { session: AutopsySession }) {
             {session.trackers.map((t, i) => (
               <li key={i} className="flex flex-wrap items-center gap-2 text-sm">
                 <Chip tone="amber">{t.type}</Chip>
-                <span className="font-medium">{t.name}</span>
-                <span className="text-xs text-zinc-500">{t.domain}</span>
+                <span className="min-w-0 break-words font-medium">{t.name}</span>
+                <span className="break-all text-xs text-zinc-500">{t.domain}</span>
               </li>
             ))}
           </ul>
@@ -1001,7 +1021,9 @@ function PrivacyPanel({ session }: { session: AutopsySession }) {
         <ul className="max-h-72 space-y-2 overflow-auto text-sm">
           {session.cookies.slice(0, 40).map((c, i) => (
             <li key={i} className="rounded-lg border border-zinc-100 p-2 dark:border-zinc-800">
-              <div className="font-medium">{c.name}</div>
+              <div className="break-all font-medium" title={c.name}>
+                {c.name}
+              </div>
               <div className="text-xs text-zinc-500">
                 {c.domain || "—"} · {c.httpOnly ? "HttpOnly " : ""}
                 {c.secure ? "Secure " : ""}
@@ -1067,7 +1089,7 @@ function SecurityPanel({ session }: { session: AutopsySession }) {
             .filter((sc) => sc.src && !sc.firstParty && !sc.hasSri)
             .slice(0, 20)
             .map((sc, i) => (
-              <li key={i} className="truncate font-mono">
+              <li key={i} className="truncate font-mono" title={sc.src}>
                 {sc.src}
               </li>
             ))}
@@ -1091,7 +1113,7 @@ function RuntimePanel({ session }: { session: AutopsySession }) {
         {r.serviceWorkers?.length ? (
           <ul className="space-y-1 text-xs font-mono">
             {r.serviceWorkers.map((u, i) => (
-              <li key={i} className="truncate">
+              <li key={i} className="break-all">
                 {u}
               </li>
             ))}
@@ -1104,7 +1126,7 @@ function RuntimePanel({ session }: { session: AutopsySession }) {
         {r.sourceMapUrls?.length ? (
           <ul className="max-h-48 space-y-1 overflow-auto text-xs font-mono">
             {r.sourceMapUrls.map((u, i) => (
-              <li key={i} className="truncate">
+              <li key={i} className="break-all">
                 {u}
               </li>
             ))}
@@ -1120,7 +1142,7 @@ function RuntimePanel({ session }: { session: AutopsySession }) {
           {Object.keys(session.storage.local || {})
             .slice(0, 20)
             .map((k) => (
-              <li key={k} className="truncate font-mono">
+              <li key={k} className="break-all font-mono" title={k}>
                 local: {k}
               </li>
             ))}
@@ -1141,11 +1163,11 @@ function StackPanel({ session }: { session: AutopsySession }) {
           key={i}
           className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
         >
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <Chip tone="teal">{s.category}</Chip>
-            <h3 className="font-semibold">{s.name}</h3>
+            <h3 className="min-w-0 break-words font-semibold">{s.name}</h3>
           </div>
-          {s.evidence && <p className="mt-2 text-xs text-zinc-500">{s.evidence}</p>}
+          {s.evidence && <p className="mt-2 break-words text-xs text-zinc-500">{s.evidence}</p>}
         </div>
       ))}
     </div>
@@ -1163,9 +1185,9 @@ function InfoCard({ title, children }: { title: string; children: React.ReactNod
 
 function KV({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid grid-cols-[8rem_1fr] gap-2 text-sm">
-      <dt className="text-zinc-500">{label}</dt>
-      <dd className="break-words text-zinc-800 dark:text-zinc-100">{value}</dd>
+    <div className="grid gap-0.5 text-sm sm:grid-cols-[7.5rem_1fr] sm:gap-2">
+      <dt className="text-xs text-zinc-500 sm:text-sm">{label}</dt>
+      <dd className="min-w-0 break-words text-zinc-800 dark:text-zinc-100">{value}</dd>
     </div>
   );
 }

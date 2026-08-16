@@ -38,14 +38,19 @@ function Sidepanel() {
   const danger = session?.advice.filter((a) => a.kind === "danger").length ?? 0;
 
   return (
-    <div className="min-h-screen space-y-3 bg-zinc-50 p-3 text-sm text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
+    <div className="min-h-screen min-w-0 space-y-3 overflow-x-hidden bg-zinc-50 p-3 text-sm text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
       <div className="font-semibold">Web Autopsy</div>
-      <p className="truncate text-xs text-zinc-500">{trackedUrl || session?.pageUrl || "No active page"}</p>
+      <p
+        className="break-all text-xs text-zinc-500"
+        title={trackedUrl || session?.pageUrl || undefined}
+      >
+        {trackedUrl || session?.pageUrl || "No active page"}
+      </p>
 
       {pendingPage && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950">
           <p className="font-semibold">New page detected</p>
-          <p className="mt-1 truncate opacity-80">{pendingPage.url}</p>
+          <p className="mt-1 break-all opacity-80">{pendingPage.url}</p>
           <p className="mt-1">Old capture stays until you switch.</p>
           <button
             type="button"
@@ -88,7 +93,11 @@ function Sidepanel() {
           .slice(-8)
           .reverse()
           .map((r) => (
-            <li key={r.id} className="truncate rounded-lg bg-white px-2 py-1 text-[11px] dark:bg-zinc-900">
+            <li
+              key={r.id}
+              className="break-all rounded-lg bg-white px-2 py-1 font-mono text-[11px] dark:bg-zinc-900"
+              title={`${r.method} ${r.url}`}
+            >
               {r.status ?? "…"} {r.method} {r.url}
             </li>
           ))}
@@ -136,9 +145,9 @@ function Sidepanel() {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="min-w-0 rounded-lg border border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="text-[10px] uppercase text-zinc-500">{label}</div>
-      <div className="font-semibold">{value}</div>
+      <div className="break-all font-semibold">{value}</div>
     </div>
   );
 }

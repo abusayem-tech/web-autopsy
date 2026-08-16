@@ -1,9 +1,9 @@
 {
   "name": "Web Autopsy",
-  "version": "0.2.3",
+  "version": "0.2.6",
   "filename": "web-autopsy-chrome.zip",
   "downloadPath": "/extension/web-autopsy-chrome.zip",
-  "bytes": 138890,
-  "sha256": "662c707a4ad0d6c1f49e5669193f0cf7c926eb2dae949de141e0aa62e9482f3b",
-  "updatedAt": "2026-08-16T13:36:34.379Z"
+  "bytes": 140250,
+  "sha256": "8acf2f95b86a693f1fc7071724845e547f317397dadd913854dcbf4096f19123",
+  "updatedAt": "2026-08-16T13:52:27.480Z"
 }

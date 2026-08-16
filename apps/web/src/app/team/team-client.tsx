@@ -45,11 +45,11 @@ export function TeamClient() {
         <h2 className="text-lg font-semibold">Members</h2>
         <ul className="mt-3 space-y-2">
           {data.members.map((m) => (
-            <li key={m.email} className="flex justify-between rounded-xl bg-zinc-50 px-3 py-2 text-sm">
-              <span>
-                {m.name} <span className="text-zinc-500">({m.email})</span>
+            <li key={m.email} className="flex flex-wrap items-start justify-between gap-2 rounded-xl bg-zinc-50 px-3 py-2 text-sm">
+              <span className="min-w-0 break-words">
+                {m.name} <span className="break-all text-zinc-500">({m.email})</span>
               </span>
-              <span className="capitalize text-zinc-600">{m.role}</span>
+              <span className="shrink-0 capitalize text-zinc-600">{m.role}</span>
             </li>
           ))}
         </ul>
@@ -63,7 +63,7 @@ export function TeamClient() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="teammate@company.com"
-              className="min-h-11 flex-1 rounded-xl border border-zinc-200 px-3"
+              className="min-h-11 min-w-0 flex-1 rounded-xl border border-zinc-200 px-3"
             />
             <select
               value={role}

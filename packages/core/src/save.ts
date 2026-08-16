@@ -116,17 +116,31 @@ export function redactSession(session: AutopsySession, includeSecrets: boolean):
   };
 }
 
-function attachImageBytes(session: AutopsySession): AutopsySession {
+function urlMatchKey(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.hostname}${u.pathname}`.toLowerCase();
+  } catch {
+    return url.split("?")[0].toLowerCase();
+  }
+}
+
+/** Attach transfer/body sizes from network requests onto image entries. */
+export function attachImageBytes(session: AutopsySession): AutopsySession {
   const byUrl = new Map<string, number>();
+  const byKey = new Map<string, number>();
   for (const r of session.requests) {
-    if (r.transferSize != null && r.transferSize > 0) {
-      byUrl.set(r.url, r.transferSize);
-    }
+    const size = r.transferSize ?? r.decodedSize;
+    if (size == null || size <= 0) continue;
+    byUrl.set(r.url, size);
+    byKey.set(urlMatchKey(r.url), size);
   }
   const images = session.images.map((img) => {
     if (img.bytes != null && img.bytes > 0) return img;
-    const match = byUrl.get(img.url);
-    if (match != null) return { ...img, bytes: match };
+    const exact = byUrl.get(img.url);
+    if (exact != null) return { ...img, bytes: exact };
+    const keyed = byKey.get(urlMatchKey(img.url));
+    if (keyed != null) return { ...img, bytes: keyed };
     try {
       const bare = img.url.split("?")[0];
       for (const [url, bytes] of byUrl) {
@@ -140,28 +154,29 @@ function attachImageBytes(session: AutopsySession): AutopsySession {
   return { ...session, images };
 }
 
-/** Drop bulky fields that are stored in dedicated columns / child tables. */
+/** Full archive for the website — keep displayable fields; no screenshots/binaries. */
 function slimSessionForCloud(session: AutopsySession, includeBodies: boolean): AutopsySession {
   return {
     ...session,
     htmlSnapshot: undefined,
     screenshotDataUrl: undefined,
-    // Child tables hold these; keep empty arrays so types stay valid.
-    findings: [],
-    advice: [],
+    // Keep findings/advice/portable in payload so the website can render every tab.
+    findings: session.findings,
+    advice: session.advice,
     portableApis: session.portableApis.map((a) => ({
       ...a,
       body: includeBodies ? truncate(a.body, MAX_BODY) : undefined,
       headers: slimHeaders(a.headers),
       redactedCodegen: a.redactedCodegen
         ? {
-            curl: truncate(a.redactedCodegen.curl, 4_000) || "",
-            fetch: truncate(a.redactedCodegen.fetch, 4_000) || "",
-            python: truncate(a.redactedCodegen.python, 4_000) || "",
+            curl: truncate(a.redactedCodegen.curl, 8_000) || "",
+            fetch: truncate(a.redactedCodegen.fetch, 8_000) || "",
+            python: truncate(a.redactedCodegen.python, 8_000) || "",
           }
         : undefined,
     })),
-    requests: session.requests.slice(-400).map((r) => ({
+    apiCatalog: session.apiCatalog,
+    requests: session.requests.slice(-1500).map((r) => ({
       ...r,
       requestHeaders: slimHeaders(r.requestHeaders),
       responseHeaders: slimHeaders(r.responseHeaders),
@@ -170,10 +185,10 @@ function slimSessionForCloud(session: AutopsySession, includeBodies: boolean): A
     })),
     images: session.images
       .filter((img) => isHttpUrl(img.url))
-      .slice(0, 200)
+      .slice(0, 500)
       .map((img) => ({
         url: img.url,
-        alt: img.alt?.slice(0, 120),
+        alt: img.alt?.slice(0, 200),
         width: img.width,
         height: img.height,
         naturalWidth: img.naturalWidth,
@@ -182,14 +197,14 @@ function slimSessionForCloud(session: AutopsySession, includeBodies: boolean): A
         broken: img.broken,
         lazy: img.lazy,
       })),
-    console: session.console.slice(-80).map((c) => ({
+    console: session.console.slice(-300).map((c) => ({
       ...c,
-      message: c.message.slice(0, 2000),
-      stack: c.stack ? c.stack.slice(0, 2000) : undefined,
+      message: c.message.slice(0, 4000),
+      stack: c.stack ? c.stack.slice(0, 4000) : undefined,
     })),
-    links: session.links.slice(0, 80),
-    forms: session.forms.slice(0, 40),
-    scripts: session.scripts.slice(0, 150).map((s) => ({
+    links: session.links.slice(0, 200),
+    forms: session.forms.slice(0, 100),
+    scripts: session.scripts.slice(0, 400).map((s) => ({
       src: s.src,
       inline: s.inline,
       async: s.async,
@@ -198,9 +213,23 @@ function slimSessionForCloud(session: AutopsySession, includeBodies: boolean): A
       firstParty: s.firstParty,
       hasSri: s.hasSri,
     })),
+    cookies: session.cookies,
+    trackers: session.trackers,
+    fingerprinting: session.fingerprinting.slice(0, 100),
+    wellKnown: session.wellKnown,
+    security: session.security,
+    seo: session.seo,
+    dom: session.dom,
+    stack: session.stack,
+    runtime: session.runtime,
+    performance: session.performance,
     storage: {
-      local: Object.fromEntries(Object.entries(session.storage.local).slice(0, 40)),
-      session: Object.fromEntries(Object.entries(session.storage.session).slice(0, 40)),
+      local: Object.fromEntries(
+        Object.entries(session.storage.local).slice(0, 100).map(([k, v]) => [k, v.slice(0, 500)]),
+      ),
+      session: Object.fromEntries(
+        Object.entries(session.storage.session).slice(0, 100).map(([k, v]) => [k, v.slice(0, 500)]),
+      ),
     },
   };
 }
@@ -321,31 +350,12 @@ export function buildSavePayload(
     brief,
   };
 
-  // Progressive shrink if still oversized.
-  const size = JSON.stringify(payload).length;
-  if (size > MAX_PAYLOAD_BYTES) {
+  // Prefer chunked upload over destructive shrink — only trim HTML if the
+  // single-shot payload would exceed limits (chunked path sends requests separately).
+  if (JSON.stringify(payload).length > MAX_PAYLOAD_BYTES) {
     payload = {
       ...payload,
-      htmlSnapshot: truncate(payload.htmlSnapshot, 100_000),
-      payload: {
-        ...payload.payload,
-        requests: payload.payload.requests.slice(-200),
-        images: payload.payload.images.slice(0, 80),
-        console: payload.payload.console.slice(-40),
-        links: [],
-        portableApis: payload.payload.portableApis.slice(0, 40).map((a) => ({
-          ...a,
-          redactedCodegen: undefined,
-          body: undefined,
-        })),
-      },
-      portableApis: payload.portableApis.slice(0, 80).map((a) => ({
-        ...a,
-        redactedCodegen: a.redactedCodegen
-          ? { curl: (a.redactedCodegen.curl || "").slice(0, 1500), fetch: "", python: "" }
-          : undefined,
-        body: undefined,
-      })),
+      htmlSnapshot: truncate(payload.htmlSnapshot, 120_000),
     };
   }
 

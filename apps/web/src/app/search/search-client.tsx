@@ -38,12 +38,16 @@ export function SearchClient() {
       <ul className="space-y-2">
         {captures.map((c) => (
           <li key={c.id}>
-            <Link href={`/captures/${c.id}`} className="block rounded-xl border border-zinc-200 bg-white p-3">
-              <div className="flex items-center gap-2">
-                <span className="font-medium">{c.title}</span>
+            <Link href={`/captures/${c.id}`} className="block min-w-0 rounded-xl border border-zinc-200 bg-white p-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <span className="min-w-0 truncate font-medium" title={c.title}>
+                  {c.title}
+                </span>
                 <HealthPill health={c.summary?.health} />
               </div>
-              <div className="truncate text-sm text-zinc-500">{c.pageUrl}</div>
+              <div className="mt-0.5 break-all text-sm text-zinc-500" title={c.pageUrl}>
+                {c.pageUrl}
+              </div>
             </Link>
           </li>
         ))}
@@ -57,7 +61,9 @@ export function SearchClient() {
                 href={`/origins/${encodeURIComponent(o.origin)}`}
                 className="block rounded-xl border border-zinc-200 bg-white p-3 text-sm"
               >
-                <div className="font-medium">{o.origin}</div>
+                <div className="break-all font-medium" title={o.origin}>
+                  {o.origin}
+                </div>
                 <div className="text-zinc-500">{o.count} saves</div>
               </Link>
             </li>

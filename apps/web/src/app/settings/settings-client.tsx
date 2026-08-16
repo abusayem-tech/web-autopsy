@@ -56,13 +56,16 @@ export function SettingsClient() {
           Status:{" "}
           <span className="font-medium text-zinc-900">
             {extensionStatus === "connected"
-              ? `Connected${ping?.apiBaseUrl ? ` · ${ping.apiBaseUrl}` : ""}`
+              ? "Connected"
               : extensionStatus === "installed"
                 ? "Installed — finish connect"
                 : extensionStatus === "checking"
                   ? "Checking…"
                   : "Not installed"}
           </span>
+          {extensionStatus === "connected" && ping?.apiBaseUrl ? (
+            <code className="mt-1 block break-all text-xs font-normal text-zinc-600">{ping.apiBaseUrl}</code>
+          ) : null}
         </p>
         <p className="mt-2 text-sm text-zinc-600">
           Prefer auto-connect on Extension — it creates the token and pushes it into Chrome without copy-paste.
@@ -85,7 +88,7 @@ export function SettingsClient() {
       </section>
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-5">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">Extension API tokens</h2>
           {role !== "viewer" && (
             <button
@@ -103,22 +106,29 @@ export function SettingsClient() {
             <code className="mt-2 block break-all rounded-lg bg-white p-2 font-mono text-xs">{freshToken}</code>
             <p className="mt-2 text-amber-800">
               Prefer Extension auto-connect instead of pasting. Base URL:{" "}
-              <code className="rounded bg-white px-1">{typeof window !== "undefined" ? window.location.origin : ""}</code>
+              <code className="break-all rounded bg-white px-1">
+                {typeof window !== "undefined" ? window.location.origin : ""}
+              </code>
             </p>
           </div>
         )}
         <ul className="mt-4 space-y-2">
           {tokens.map((t) => (
-            <li key={t.id} className="flex items-center justify-between rounded-xl border border-zinc-100 px-3 py-2 text-sm">
-              <div>
-                <div className="font-medium">{t.name}</div>
+            <li
+              key={t.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-100 px-3 py-2 text-sm"
+            >
+              <div className="min-w-0">
+                <div className="truncate font-medium" title={t.name}>
+                  {t.name}
+                </div>
                 <div className="text-xs text-zinc-500">
                   {new Date(t.createdAt).toLocaleString()}
                   {t.revokedAt ? " · revoked" : ""}
                 </div>
               </div>
               {!t.revokedAt && role !== "viewer" && (
-                <button type="button" className="text-red-600" onClick={() => void revoke(t.id)}>
+                <button type="button" className="shrink-0 text-red-600" onClick={() => void revoke(t.id)}>
                   Revoke
                 </button>
               )}

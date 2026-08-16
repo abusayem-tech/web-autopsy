@@ -333,7 +333,13 @@ export interface SavePayload {
 }
 
 /** Chunked cloud save steps (extension → API). */
-export type SaveUploadStep = "meta" | "session" | "findings" | "portable" | "finish";
+export type SaveUploadStep =
+  | "meta"
+  | "session"
+  | "session_patch"
+  | "findings"
+  | "portable"
+  | "finish";
 
 export interface SaveMetaChunk {
   step: "meta";
@@ -349,6 +355,15 @@ export interface SaveSessionChunk {
   step: "session";
   id: string;
   payload: AutopsySession;
+}
+
+/** Merge fields into the stored session JSON (optionally append requests). */
+export interface SaveSessionPatchChunk {
+  step: "session_patch";
+  id: string;
+  patch: Partial<AutopsySession>;
+  /** When true, `patch.requests` are appended instead of replacing. */
+  appendRequests?: boolean;
 }
 
 export interface SaveFindingsChunk {
@@ -375,6 +390,7 @@ export interface SaveFinishChunk {
 export type SaveUploadChunk =
   | SaveMetaChunk
   | SaveSessionChunk
+  | SaveSessionPatchChunk
   | SaveFindingsChunk
   | SavePortableChunk
   | SaveFinishChunk;

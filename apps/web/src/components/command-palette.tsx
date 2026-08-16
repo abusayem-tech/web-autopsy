@@ -49,14 +49,18 @@ export function CommandPalette() {
             <li key={r.id}>
               <button
                 type="button"
-                className="flex w-full min-h-11 flex-col rounded-xl px-3 py-2 text-left hover:bg-zinc-50"
+                className="flex w-full min-h-11 min-w-0 flex-col rounded-xl px-3 py-2 text-left hover:bg-zinc-50"
                 onClick={() => {
                   setOpen(false);
                   router.push(`/captures/${r.id}`);
                 }}
               >
-                <span className="font-medium">{r.title}</span>
-                <span className="truncate text-xs text-zinc-500">{r.pageUrl}</span>
+                <span className="min-w-0 w-full truncate font-medium" title={r.title}>
+                  {r.title}
+                </span>
+                <span className="min-w-0 w-full truncate text-xs text-zinc-500" title={r.pageUrl}>
+                  {r.pageUrl}
+                </span>
               </button>
             </li>
           ))}

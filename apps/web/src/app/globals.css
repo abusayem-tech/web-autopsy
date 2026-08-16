@@ -8,10 +8,22 @@
   --accent: #0d9488;
 }
 
+html {
+  overflow-x: clip;
+}
+
 body {
   color: var(--foreground);
   background: var(--background);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  overflow-x: clip;
+  min-width: 0;
+}
+
+pre,
+code {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 @media print {

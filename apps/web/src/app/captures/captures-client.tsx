@@ -57,7 +57,7 @@ export function CapturesClient() {
     <div>
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Captures</h1>
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl lg:text-3xl">Captures</h1>
           <p className="mt-1 text-zinc-600">
             Saved autopsies for your workspace. Nothing appears here until someone clicks Save.
           </p>
@@ -101,24 +101,29 @@ export function CapturesClient() {
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="truncate text-lg font-semibold">
+                    <h2
+                      className="min-w-0 max-w-full truncate text-lg font-semibold"
+                      title={c.summary?.pageTitle || c.title}
+                    >
                       {c.summary?.pageTitle || c.title}
                     </h2>
                     <HealthPill health={c.summary?.health} />
                   </div>
-                  <p className="mt-1 truncate text-sm font-medium text-zinc-700">{c.pageUrl}</p>
+                  <p className="mt-1 break-all text-sm font-medium text-zinc-700" title={c.pageUrl}>
+                    {c.pageUrl}
+                  </p>
                   {(c.summary?.subtitle || c.summary?.storyLine) && (
-                    <p className="mt-1 line-clamp-2 text-sm text-zinc-600">
+                    <p className="mt-1 line-clamp-2 break-words text-sm text-zinc-600">
                       {c.summary?.subtitle || c.summary?.storyLine}
                     </p>
                   )}
-                  <p className="mt-2 text-xs text-zinc-500">
+                  <p className="mt-2 break-words text-xs text-zinc-500">
                     {c.summary?.storyLine && c.summary?.subtitle
                       ? c.summary.storyLine
                       : `${formatBytes(c.summary?.pageSizeBytes ?? 0)} · ${formatMs(c.summary?.loadTimeMs)}`}
                   </p>
                 </div>
-                <div className="text-right text-xs text-zinc-500">
+                <div className="shrink-0 text-right text-xs text-zinc-500">
                   <div>{new Date(c.savedAt).toLocaleString()}</div>
                   <div className="mt-1">{c.summary?.dangerCount ? `${c.summary.dangerCount} in danger` : "—"}</div>
                   <Link

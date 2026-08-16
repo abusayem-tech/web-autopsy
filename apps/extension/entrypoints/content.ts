@@ -60,14 +60,56 @@ export default defineContentScript({
 });
 
 function resourceBytes(url: string): number | undefined {
-  if (!url) return undefined;
+  if (!url || url.startsWith("data:")) return undefined;
   try {
-    const entries = performance.getEntriesByName(url) as PerformanceResourceTiming[];
-    const last = entries[entries.length - 1];
-    if (last && last.transferSize > 0) return last.transferSize;
-    const bare = url.split("?")[0];
+    const pick = (e: PerformanceResourceTiming): number | undefined => {
+      const n = e.transferSize || e.encodedBodySize || e.decodedBodySize;
+      return n > 0 ? n : undefined;
+    };
+
+    const byName = performance.getEntriesByName(url) as PerformanceResourceTiming[];
+    for (let i = byName.length - 1; i >= 0; i--) {
+      const n = pick(byName[i]!);
+      if (n != null) return n;
+    }
+
+    let abs = url;
+    try {
+      abs = new URL(url, location.href).href;
+    } catch {
+      /* ignore */
+    }
+    if (abs !== url) {
+      const byAbs = performance.getEntriesByName(abs) as PerformanceResourceTiming[];
+      for (let i = byAbs.length - 1; i >= 0; i--) {
+        const n = pick(byAbs[i]!);
+        if (n != null) return n;
+      }
+    }
+
+    const keyPath = (() => {
+      try {
+        const u = new URL(abs);
+        return `${u.hostname}${u.pathname}`.toLowerCase();
+      } catch {
+        return abs.split("?")[0].toLowerCase();
+      }
+    })();
+
     for (const e of performance.getEntriesByType("resource") as PerformanceResourceTiming[]) {
-      if (e.name.split("?")[0] === bare && e.transferSize > 0) return e.transferSize;
+      try {
+        const u = new URL(e.name);
+        const k = `${u.hostname}${u.pathname}`.toLowerCase();
+        if (k === keyPath) {
+          const n = pick(e);
+          if (n != null) return n;
+        }
+      } catch {
+        if (e.name.split("?")[0].toLowerCase() === keyPath) {
+          const n = pick(e);
+          if (n != null) return n;
+        }
+      }
     }
   } catch {
     /* ignore */
@@ -77,7 +119,13 @@ function resourceBytes(url: string): number | undefined {
 
 function collectSnapshot() {
   const imgs = [...document.querySelectorAll("img")].map((img) => {
-    const url = img.currentSrc || img.src;
+    const raw = img.currentSrc || img.src;
+    let url = raw;
+    try {
+      url = new URL(raw, location.href).href;
+    } catch {
+      /* keep raw */
+    }
     return {
       url,
       alt: img.alt,
@@ -85,7 +133,7 @@ function collectSnapshot() {
       height: img.height,
       naturalWidth: img.naturalWidth,
       naturalHeight: img.naturalHeight,
-      bytes: resourceBytes(url),
+      bytes: resourceBytes(url) ?? resourceBytes(raw),
       broken: !img.complete || img.naturalWidth === 0,
       lazy: img.loading === "lazy",
     };

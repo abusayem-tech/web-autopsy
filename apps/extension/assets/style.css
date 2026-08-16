@@ -6,11 +6,28 @@
   color-scheme: light dark;
 }
 
+html {
+  overflow-x: clip;
+}
+
 body {
   margin: 0;
   font-family: ui-sans-serif, system-ui, sans-serif;
   background: #fafafa;
   color: #18181b;
+  overflow-x: clip;
+}
+
+#root {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+pre,
+code {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 @media (prefers-color-scheme: dark) {

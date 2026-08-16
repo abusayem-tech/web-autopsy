@@ -68,9 +68,15 @@ async function postChunk(
   return res.json() as Promise<{ id: string; updated?: boolean; progress?: number; health?: string }>;
 }
 
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 /**
- * Sequential upload: meta → session → findings → portable → finish.
- * No screenshots or binary images — image URLs only.
+ * Sequential upload of the full capture (all inspector tabs).
+ * Steps: meta → session core → request batches → findings → portable → finish
  */
 export async function saveToCloud(
   tabId: number,
@@ -81,12 +87,11 @@ export async function saveToCloud(
   },
 ) {
   const onProgress = options?.onProgress;
-  onProgress?.({ percent: 5, label: "Collecting page text…" });
+  onProgress?.({ percent: 4, label: "Collecting page text…" });
   await chrome.runtime.sendMessage({ type: "GET_HTML", tabId });
 
-  onProgress?.({ percent: 10, label: "Building capture…" });
+  onProgress?.({ percent: 8, label: "Building full capture…" });
   const { session } = await fetchSession(tabId);
-  // Never attach screenshots for cloud save.
   session.screenshotDataUrl = undefined;
   const payload: SavePayload = buildSavePayload(session, {
     title: options?.title,
@@ -99,7 +104,7 @@ export async function saveToCloud(
     throw new Error("Set API base URL and token in Options first.");
   }
 
-  onProgress?.({ percent: 20, label: "Uploading page metadata…" });
+  onProgress?.({ percent: 14, label: "Uploading metadata…" });
   const meta = await postChunk(opts.apiBaseUrl, opts.apiToken, {
     step: "meta",
     title: payload.title,
@@ -112,21 +117,40 @@ export async function saveToCloud(
   const id = meta.id;
   const updated = Boolean(meta.updated);
 
-  onProgress?.({ percent: 40, label: "Uploading session data…" });
+  const full = payload.payload;
+  const requests = full.requests || [];
+  const core: AutopsySession = { ...full, requests: [] };
+
+  onProgress?.({ percent: 22, label: "Uploading page / privacy / performance…" });
   await postChunk(opts.apiBaseUrl, opts.apiToken, {
     step: "session",
     id,
-    payload: payload.payload,
+    payload: core,
   });
 
-  onProgress?.({ percent: 60, label: "Uploading findings…" });
+  const batches = chunkArray(requests, 250);
+  for (let i = 0; i < batches.length; i++) {
+    const pct = 28 + Math.round(((i + 1) / Math.max(batches.length, 1)) * 28);
+    onProgress?.({
+      percent: pct,
+      label: `Uploading network ${i + 1}/${batches.length || 1}…`,
+    });
+    await postChunk(opts.apiBaseUrl, opts.apiToken, {
+      step: "session_patch",
+      id,
+      appendRequests: true,
+      patch: { requests: batches[i]! },
+    });
+  }
+
+  onProgress?.({ percent: 62, label: "Uploading findings…" });
   await postChunk(opts.apiBaseUrl, opts.apiToken, {
     step: "findings",
     id,
     findings: payload.findings,
   });
 
-  onProgress?.({ percent: 80, label: "Uploading portable APIs…" });
+  onProgress?.({ percent: 78, label: "Uploading portable APIs…" });
   await postChunk(opts.apiBaseUrl, opts.apiToken, {
     step: "portable",
     id,
@@ -162,7 +186,6 @@ export async function downloadRebuildKit(tabId: number) {
     ),
   );
   folder.file("page.html", session.htmlSnapshot || "");
-  // Image URLs only — no binary downloads.
   folder.file(
     "images.json",
     JSON.stringify(
@@ -179,8 +202,10 @@ export async function downloadRebuildKit(tabId: number) {
   );
   folder.file("apis.json", JSON.stringify(enriched.portableApis, null, 2));
   folder.file("performance.json", JSON.stringify(session.performance, null, 2));
+  folder.file("session.json", JSON.stringify(enriched.payload, null, 2));
   folder.file("story.md", enriched.brief?.story || "");
   folder.file("advice.json", JSON.stringify(enriched.advice, null, 2));
+  folder.file("findings.json", JSON.stringify(enriched.findings, null, 2));
   const blob = await zip.generateAsync({ type: "blob" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
